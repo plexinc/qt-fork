@@ -3,7 +3,9 @@
 // found in the LICENSE file.
 const fs = require('fs');
 const path = require('path');
-const [, , src, dest, files] = process.argv;
+const [, , src, dest, files_list] = process.argv;
+
+const files = fs.readFileSync(files_list, 'utf-8')
 
 for (const file of files.split(',')) {
   const srcPath = path.join(src, file);

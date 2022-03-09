@@ -18,11 +18,12 @@ template("copy_to_gen") {
 
     _copy_src = rebase_path(get_path_info(target_name, "dir"))
     _copy_dest = rebase_path(target_gen_dir)
+    write_file("$target_gen_dir/files_list_gen_$target_name.txt", string_join(",", sources))
 
     args = [
       _copy_src,
       _copy_dest,
-      string_join(",", sources),
+      "$target_gen_dir/files_list_gen_$target_name.txt",
     ]
 
     outputs = []
@@ -59,10 +60,12 @@ template("copy_sources_to_resources") {
     _copy_dest =
         rebase_path("$root_out_dir/resources/inspector$_front_end_module_name")
 
+    write_file("$target_gen_dir/files_list_sources_$target_name.txt", string_join(",", sources))
+
     args = [
       _copy_src,
       _copy_dest,
-      string_join(",", sources),
+      "$target_gen_dir/files_list_sources_$target_name.txt",
     ]
 
     outputs = []
