@@ -371,8 +371,8 @@ static QDate calculatePosixDate(const QByteArray &dateRule, int year)
         int month = dateParts.at(0).mid(1).toInt();
         int week = dateParts.at(1).toInt();
         int dow = dateParts.at(2).toInt();
-        if (dow == 0)
-            ++dow;
+        if (dow == 0) // Sunday; we represent it as 7
+            dow = 7;
         return calculateDowDate(year, month, dow, week);
     } else if (dateRule.at(0) == 'J') {
         // Day of Year ignores Feb 29
@@ -394,29 +394,34 @@ static int parsePosixTime(const char *begin, const char *end)
     // Format "hh[:mm[:ss]]"
     int hour, min = 0, sec = 0;
 
-    // Note that the calls to qstrtoll do *not* check the end pointer, which
-    // means they proceed until they find a non-digit. We check that we're
-    // still in range at the end, but we may have read from past end. It's the
-    // caller's responsibility to ensure that begin is part of a
-    // null-terminated string.
+    // Note that the calls to qstrtoll do *not* check against the end pointer,
+    // which means they proceed until they find a non-digit. We check that we're
+    // still in range at the end, but we may have read past end. It's the
+    // caller's responsibility to ensure that begin is part of a null-terminated
+    // string.
 
+    const int maxHour = QTimeZone::MaxUtcOffsetSecs / 3600;
     bool ok = false;
-    hour = qstrtoll(begin, &begin, 10, &ok);
-    if (!ok || hour < 0)
+    const char *cut = begin;
+    hour = qstrtoll(begin, &cut, 10, &ok);
+    if (!ok || hour < 0 || hour > maxHour || cut > begin + 2)
         return INT_MIN;
+    begin = cut;
     if (begin < end && *begin == ':') {
         // minutes
         ++begin;
-        min = qstrtoll(begin, &begin, 10, &ok);
-        if (!ok || min < 0)
+        min = qstrtoll(begin, &cut, 10, &ok);
+        if (!ok || min < 0 || min > 59 || cut > begin + 2)
             return INT_MIN;
 
+        begin = cut;
         if (begin < end && *begin == ':') {
             // seconds
             ++begin;
-            sec = qstrtoll(begin, &begin, 10, &ok);
-            if (!ok || sec < 0)
+            sec = qstrtoll(begin, &cut, 10, &ok);
+            if (!ok || sec < 0 || sec > 59 || cut > begin + 2)
                 return INT_MIN;
+            begin = cut;
         }
     }
 
@@ -862,13 +867,19 @@ void QTzTimeZonePrivate::init(const QByteArray &ianaId)
     cached_data = std::move(entry);
     m_id = ianaId;
     // Avoid empty ID, if we have an abbreviation to use instead
-    if (m_id.isEmpty()) { // We've read /etc/localtime's contents
-        for (const auto &abbr : cached_data.m_abbreviations) {
-            if (!abbr.isEmpty()) {
-                m_id = abbr;
-                break;
-            }
-        }
+    if (m_id.isEmpty()) {
+        // This can only happen for the system zone, when we've read the
+        // contents of /etc/localtime because it wasn't a symlink.
+#if QT_CONFIG(icu)
+        // Use ICU's system zone, if only to avoid using the abbreviation as ID
+        // (ICU might mis-recognize it) in displayName().
+        m_icu = new QIcuTimeZonePrivate();
+        // Use its ID, as an alternate source of data:
+        m_id = m_icu->id();
+        if (!m_id.isEmpty())
+            return;
+#endif
+        m_id = abbreviation(QDateTime::currentMSecsSinceEpoch()).toUtf8();
     }
 }
 
@@ -897,7 +908,8 @@ QString QTzTimeZonePrivate::displayName(qint64 atMSecsSinceEpoch,
     Q_UNUSED(nameType)
     Q_UNUSED(locale)
 #endif
-    return abbreviation(atMSecsSinceEpoch);
+    // Fall back to base-class:
+    return QTimeZonePrivate::displayName(atMSecsSinceEpoch, nameType, locale);
 }
 
 QString QTzTimeZonePrivate::displayName(QTimeZone::TimeType timeType,

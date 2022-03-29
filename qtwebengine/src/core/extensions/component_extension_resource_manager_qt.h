@@ -47,6 +47,7 @@
 #include <map>
 
 #include "base/files/file_path.h"
+#include "base/macros.h"
 #include "extensions/browser/component_extension_resource_manager.h"
 
 struct GritResourceMap;
@@ -71,6 +72,9 @@ private:
     // A map from a resource path to the resource ID.  Used by
     // IsComponentExtensionResource.
     std::map<base::FilePath, int> path_to_resource_id_;
+
+    // A map from an extension ID to its i18n template replacements.
+    std::map<std::string, ui::TemplateReplacements> template_replacements_;
 
     DISALLOW_COPY_AND_ASSIGN(ComponentExtensionResourceManagerQt);
 };

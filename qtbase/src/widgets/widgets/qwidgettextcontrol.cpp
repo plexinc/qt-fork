@@ -52,13 +52,13 @@
 #include <qclipboard.h>
 #if QT_CONFIG(menu)
 #include <qmenu.h>
+#include "private/qmenu_p.h"
 #endif
 #include <qstyle.h>
 #include <qtimer.h>
 #include "private/qapplication_p.h"
 #include "private/qtextdocumentlayout_p.h"
 #include "private/qabstracttextdocumentlayout_p.h"
-#include "private/qmenu_p.h"
 #include "qtextdocument.h"
 #include "private/qtextdocument_p.h"
 #include "qtextlist.h"
@@ -922,7 +922,7 @@ QTextDocument *QWidgetTextControl::document() const
     return d->doc;
 }
 
-void QWidgetTextControl::setTextCursor(const QTextCursor &cursor)
+void QWidgetTextControl::setTextCursor(const QTextCursor &cursor, bool selectionClipboard)
 {
     Q_D(QWidgetTextControl);
     d->cursorIsFocusIndicator = false;
@@ -936,6 +936,11 @@ void QWidgetTextControl::setTextCursor(const QTextCursor &cursor)
     d->repaintOldAndNewSelection(oldSelection);
     if (posChanged)
         emit cursorPositionChanged();
+
+#ifndef QT_NO_CLIPBOARD
+    if (selectionClipboard)
+        d->setClipboardSelection();
+#endif
 }
 
 QTextCursor QWidgetTextControl::textCursor() const
@@ -1225,6 +1230,9 @@ void QWidgetTextControlPrivate::keyPressEvent(QKeyEvent *e)
     if (e == QKeySequence::SelectAll) {
             e->accept();
             q->selectAll();
+#ifndef QT_NO_CLIPBOARD
+            setClipboardSelection();
+#endif
             return;
     }
 #ifndef QT_NO_CLIPBOARD
@@ -1375,6 +1383,10 @@ process:
     }
 
  accept:
+
+#ifndef QT_NO_CLIPBOARD
+    setClipboardSelection();
+#endif
 
     e->accept();
     cursorOn = true;
@@ -1942,10 +1954,14 @@ void QWidgetTextControlPrivate::contextMenuEvent(const QPoint &screenPos, const 
     if (!menu)
         return;
     menu->setAttribute(Qt::WA_DeleteOnClose);
-    if (auto *window = static_cast<QWidget *>(parent)->window()->windowHandle()) {
-        QMenuPrivate::get(menu)->topData()->initialScreenIndex =
+
+    if (auto *widget = qobject_cast<QWidget *>(parent)) {
+        if (auto *window = widget->window()->windowHandle()) {
+            QMenuPrivate::get(menu)->topData()->initialScreenIndex =
                 QGuiApplication::screens().indexOf(window->screen());
+        }
     }
+
     menu->popup(screenPos);
 #endif
 }

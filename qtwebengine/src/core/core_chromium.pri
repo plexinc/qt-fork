@@ -52,7 +52,6 @@ SOURCES = \
         color_chooser_controller.cpp \
         common/qt_ipc_logging.cpp \
         common/qt_messages.cpp \
-        common/user_script_data.cpp \
         compositor/content_gpu_client_qt.cpp \
         compositor/display_frame_sink.cpp \
         compositor/display_overrides.cpp \
@@ -111,11 +110,11 @@ SOURCES = \
         renderer/content_renderer_client_qt.cpp \
         renderer/content_settings_observer_qt.cpp \
         renderer/render_frame_observer_qt.cpp \
-        renderer/render_view_observer_qt.cpp \
-        renderer/render_thread_observer_qt.cpp \
+        renderer/web_engine_page_render_frame.cpp \
+        renderer/render_configuration.cpp \
         renderer/user_resource_controller.cpp \
         renderer/plugins/plugin_placeholder_qt.cpp \
-        renderer_host/render_view_observer_host_qt.cpp \
+        renderer_host/web_engine_page_host.cpp \
         renderer_host/user_resource_controller_host.cpp \
         resource_bundle_qt.cpp \
         resource_context_qt.cpp \
@@ -155,7 +154,6 @@ HEADERS = \
         color_chooser_controller_p.h \
         color_chooser_controller.h \
         common/qt_messages.h \
-        common/user_script_data.h \
         compositor/content_gpu_client_qt.h \
         compositor/display_frame_sink.h \
         compositor/display_software_output_surface.h \
@@ -217,11 +215,11 @@ HEADERS = \
         renderer/content_renderer_client_qt.h \
         renderer/content_settings_observer_qt.h \
         renderer/render_frame_observer_qt.h \
-        renderer/render_view_observer_qt.h \
-        renderer/render_thread_observer_qt.h \
+        renderer/web_engine_page_render_frame.h \
+        renderer/render_configuration.h \
         renderer/user_resource_controller.h \
         renderer/plugins/plugin_placeholder_qt.h \
-        renderer_host/render_view_observer_host_qt.h \
+        renderer_host/web_engine_page_host.h \
         renderer_host/user_resource_controller_host.h \
         request_controller.h \
         resource_context_qt.h \
@@ -320,11 +318,13 @@ qtConfig(webengine-extensions) {
         common/extensions/extensions_api_provider_qt.cpp \
         common/extensions/extensions_client_qt.cpp \
         extensions/component_extension_resource_manager_qt.cpp \
+        extensions/extension_host_delegate_qt.cpp \
         extensions/extension_system_qt.cpp \
         extensions/extension_system_factory_qt.cpp \
         extensions/extension_web_contents_observer_qt.cpp \
         extensions/extensions_api_client_qt.cpp \
         extensions/extensions_browser_client_qt.cpp \
+        extensions/messaging_delegate_qt.cpp \
         extensions/mime_handler_view_guest_delegate_qt.cpp \
         net/plugin_response_interceptor_url_loader_throttle.cpp \
         renderer/extensions/extensions_dispatcher_delegate_qt.cpp \
@@ -336,11 +336,13 @@ qtConfig(webengine-extensions) {
         common/extensions/extensions_api_provider_qt.h \
         common/extensions/extensions_client_qt.h \
         extensions/component_extension_resource_manager_qt.h \
+        extensions/extension_host_delegate_qt.h \
         extensions/extension_system_qt.h \
         extensions/extension_system_factory_qt.h \
         extensions/extension_web_contents_observer_qt.h \
         extensions/extensions_api_client_qt.h \
         extensions/extensions_browser_client_qt.h \
+        extensions/messaging_delegate_qt.h \
         extensions/mime_handler_view_guest_delegate_qt.h \
         net/plugin_response_interceptor_url_loader_throttle.h \
         renderer/extensions/extensions_dispatcher_delegate_qt.h \

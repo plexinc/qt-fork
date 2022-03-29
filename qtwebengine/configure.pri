@@ -143,6 +143,7 @@ defineTest(qtConfTest_detectArch) {
     contains(QT_ARCH, "i386")|contains(QT_ARCH, "x86_64"): return(true)
     contains(QT_ARCH, "arm")|contains(QT_ARCH, "arm64"): return(true)
     contains(QT_ARCH, "mips"): return(true)
+    contains(QT_ARCH, "mips64"): return(true)
     qtLog("Architecture not supported.")
     return(false)
 }
@@ -169,16 +170,6 @@ defineTest(qtConfTest_detectNinja) {
     return(false)
 }
 
-defineTest(qtConfTest_detectProtoc) {
-    protoc = $$qtConfFindInPath("protoc")
-    isEmpty(protoc) {
-        qtLog("Optional protoc could not be found.")
-        return(false)
-    }
-    qtLog("Found protoc from path: $$protoc")
-    return(true)
-}
-
 defineTest(qtConfTest_detectGn) {
     gn = $$qtConfFindInPath("gn$$EXE_SUFFIX")
     !isEmpty(gn) {
@@ -201,6 +192,19 @@ defineTest(qtConfTest_detectNodeJS) {
             return(false)
         }
     }
+    nodejs = $$system_quote($$system_path($$nodejs))
+    !qtRunLoggedCommand("$$nodejs --version", version) {
+        qtLog("'$$nodejs' didn't run.")
+        return(false)
+    }
+    # at least version 10
+    version10 = false
+    contains(version, "v([1-9][0-9])\..*"): version10 = true
+
+    $${1}.version10 = $$version10
+    export($${1}.version10)
+    $${1}.cache += version10
+    export($${1}.cache)
     return(true)
 }
 
@@ -430,8 +434,8 @@ defineTest(qtwebengine_isWindowsPlatformSupported) {
         qtwebengine_platformError("requires MSVC or Clang (MSVC mode).")
         return(false)
     }
-    !qtwebengine_isMinWinSDKVersion(10, 18362): {
-        qtwebengine_platformError("requires a Windows SDK version 10.0.18362 or newer.")
+    !qtwebengine_isMinWinSDKVersion(10, 19041): {
+        qtwebengine_platformError("requires a Windows SDK version 10.0.19041 or newer.")
         return(false)
     }
     return(true)
@@ -461,10 +465,17 @@ defineTest(qtwebengine_isMacOsPlatformSupported) {
 
 defineTest(qtwebengine_isGCCVersionSupported) {
   # Keep in sync with src/webengine/doc/src/qtwebengine-platform-notes.qdoc
-  greaterThan(QMAKE_GCC_MAJOR_VERSION, 4):return(true)
+  lessThan(QMAKE_GCC_MAJOR_VERSION, 5) {
+    qtwebengine_platformError("requires at least gcc version 5, but using gcc version $${QMAKE_GCC_MAJOR_VERSION}.$${QMAKE_GCC_MINOR_VERSION}.")
+    return(false)
+  }
 
-  qtwebengine_platformError("requires at least gcc version 5, but using gcc version $${QMAKE_GCC_MAJOR_VERSION}.$${QMAKE_GCC_MINOR_VERSION}.")
-  return(false)
+  equals(QMAKE_GCC_MAJOR_VERSION, 5): equals(QMAKE_GCC_MINOR_VERSION, 4): equals(QMAKE_GCC_PATCH_VERSION, 0) {
+    qtwebengine_platformError("gcc version 5.4.0 is blacklisted due to internal compiler errors.")
+    return(false)
+  }
+
+  return(true)
 }
 
 defineTest(qtwebengine_isBuildingOnWin32) {

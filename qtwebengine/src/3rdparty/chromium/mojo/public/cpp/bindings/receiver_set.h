@@ -162,6 +162,16 @@ class ReceiverSetBase {
     return true;
   }
 
+  // Unbinds and takes all receivers in this set.
+  std::vector<PendingType> TakeReceivers() {
+    std::vector<PendingType> pending_receivers;
+    for (auto& it : receivers_) {
+      pending_receivers.push_back(it.second->Unbind());
+    }
+    receivers_.clear();
+    return pending_receivers;
+  }
+
   // Removes all receivers from the set, effectively closing all of them. This
   // ReceiverSet will not schedule or execute any further method invocations or
   // disconnection notifications until a new receiver is added to the set.
@@ -299,6 +309,8 @@ class ReceiverSetBase {
     }
 
     void FlushForTesting() { receiver_.FlushForTesting(); }
+
+    PendingType Unbind() { return receiver_.Unbind(); }
 
    private:
     class DispatchFilter : public MessageFilter {

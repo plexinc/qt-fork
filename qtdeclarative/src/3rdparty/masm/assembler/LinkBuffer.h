@@ -228,7 +228,7 @@ public:
         return m_size;
     }
 
-    inline void makeExecutable();
+    inline bool makeExecutable();
 
 private:
     template <typename T> T applyOffset(T src)
@@ -333,7 +333,7 @@ inline void LinkBufferBase<MacroAssembler, ExecutableOffsetCalculator>::linkCode
     m_executableMemory = m_assembler->m_assembler.executableCopy(*m_globalData, ownerUID, effort);
     if (!m_executableMemory)
         return;
-    m_code = m_executableMemory->start();
+    m_code = m_executableMemory->codeStart();
     m_size = m_assembler->m_assembler.codeSize();
     ASSERT(m_code);
 }
@@ -353,9 +353,10 @@ void LinkBufferBase<MacroAssembler, ExecutableOffsetCalculator>::performFinaliza
 }
 
 template <typename MacroAssembler, template <typename T> class ExecutableOffsetCalculator>
-inline void LinkBufferBase<MacroAssembler, ExecutableOffsetCalculator>::makeExecutable()
+inline bool LinkBufferBase<MacroAssembler, ExecutableOffsetCalculator>::makeExecutable()
 {
-    ExecutableAllocator::makeExecutable(code(), static_cast<int>(m_size));
+    return ExecutableAllocator::makeExecutable(m_executableMemory->memoryStart(),
+                                               m_executableMemory->memorySize());
 }
 
 template <typename MacroAssembler>
@@ -391,7 +392,7 @@ public:
     }
 
     virtual void performFinalization() override final;
-    inline void makeExecutable();
+    inline bool makeExecutable();
 
     inline void linkCode(void* ownerUID, JITCompilationEffort);
 
@@ -427,9 +428,9 @@ void BranchCompactingLinkBuffer<MacroAssembler>::performFinalization()
 }
 
 template <typename MacroAssembler>
-inline void BranchCompactingLinkBuffer<MacroAssembler>::makeExecutable()
+inline bool BranchCompactingLinkBuffer<MacroAssembler>::makeExecutable()
 {
-    ExecutableAllocator::makeExecutable(code(), m_initialSize);
+    return ExecutableAllocator::makeExecutable(code(), m_initialSize);
 }
 
 template <typename MacroAssembler>
@@ -442,9 +443,12 @@ inline void BranchCompactingLinkBuffer<MacroAssembler>::linkCode(void* ownerUID,
     m_executableMemory = m_globalData->executableAllocator.allocate(*m_globalData, m_initialSize, ownerUID, effort);
     if (!m_executableMemory)
         return;
-    m_code = (uint8_t*)m_executableMemory->start();
+    if (Q_UNLIKELY(!ExecutableAllocator::makeWritable(m_executableMemory->memoryStart(), m_executableMemory->memorySize()))) {
+        m_executableMemory = {};
+        return;
+    }
+    m_code = (uint8_t*)m_executableMemory->codeStart();
     ASSERT(m_code);
-    ExecutableAllocator::makeWritable(m_code, m_initialSize);
     uint8_t* inData = (uint8_t*)m_assembler->unlinkedCode();
     uint8_t* outData = reinterpret_cast<uint8_t*>(m_code);
     int readPtr = 0;

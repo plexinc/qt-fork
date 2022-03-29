@@ -174,7 +174,7 @@ struct Options
     QString versionName;
     QString versionCode;
     QByteArray minSdkVersion{"21"};
-    QByteArray targetSdkVersion{"28"};
+    QByteArray targetSdkVersion{"29"};
 
     // lib c++ path
     QString stdCppPath;
@@ -1801,7 +1801,7 @@ bool scanImports(Options *options, QSet<QString> *usedDependencies)
             // The qmlimportscanner sometimes outputs paths that do not exist.
             if (!info.exists()) {
                 if (options->verbose)
-                    fprintf(stdout, "    -- Skipping because file does not exist.\n");
+                    fprintf(stdout, "    -- Skipping because path does not exist.\n");
                 continue;
             }
 
@@ -1811,7 +1811,7 @@ bool scanImports(Options *options, QSet<QString> *usedDependencies)
 
             if (absolutePath.startsWith(rootPath)) {
                 if (options->verbose)
-                    fprintf(stdout, "    -- Skipping because file is in QML root path.\n");
+                    fprintf(stdout, "    -- Skipping because path is in QML root path.\n");
                 continue;
             }
 

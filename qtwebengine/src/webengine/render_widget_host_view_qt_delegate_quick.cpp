@@ -41,13 +41,16 @@
 
 #include "qquickwebengineview_p.h"
 #include "qquickwebengineview_p_p.h"
+
 #include <QGuiApplication>
-#include <QQuickPaintedItem>
 #include <QQuickWindow>
-#include <QSurfaceFormat>
 #include <QVariant>
 #include <QWindow>
-#include <QtQuick/private/qquickwindow_p.h>
+
+#if defined(Q_OS_MACOS) && QT_CONFIG(opengl)
+#include <QOpenGLContext>
+#include <QSurfaceFormat>
+#endif
 
 namespace QtWebEngineCore {
 
@@ -88,14 +91,13 @@ RenderWidgetHostViewQtDelegateQuick::~RenderWidgetHostViewQtDelegateQuick()
     QQuickWebEngineViewPrivate::bindViewAndWidget(nullptr, this);
 }
 
-void RenderWidgetHostViewQtDelegateQuick::initAsPopup(const QRect &r)
+void RenderWidgetHostViewQtDelegateQuick::initAsPopup(const QRect &screenRect)
 {
+    //note this is called when there is no windowing system
+    //otherwsie see RenderWidgetHostViewQtDelegateQuickWindow
     Q_ASSERT(m_isPopup && parentItem());
-    QRectF rect(parentItem()->mapRectFromScene(r));
-    setX(rect.x());
-    setY(rect.y());
-    setWidth(rect.width());
-    setHeight(rect.height());
+    setPosition(screenRect.topLeft());
+    setSize(screenRect.size());
     setVisible(true);
 }
 
@@ -168,20 +170,9 @@ QSGTexture *RenderWidgetHostViewQtDelegateQuick::createTextureFromImage(const QI
     return QQuickItem::window()->createTextureFromImage(image, QQuickWindow::TextureCanUseAtlas);
 }
 
-QSGLayer *RenderWidgetHostViewQtDelegateQuick::createLayer()
-{
-    QSGRenderContext *renderContext = QQuickWindowPrivate::get(QQuickItem::window())->context;
-    return renderContext->sceneGraphContext()->createLayer(renderContext);
-}
-
 QSGImageNode *RenderWidgetHostViewQtDelegateQuick::createImageNode()
 {
     return QQuickItem::window()->createImageNode();
-}
-
-QSGRectangleNode *RenderWidgetHostViewQtDelegateQuick::createRectangleNode()
-{
-    return QQuickItem::window()->createRectangleNode();
 }
 
 void RenderWidgetHostViewQtDelegateQuick::update()

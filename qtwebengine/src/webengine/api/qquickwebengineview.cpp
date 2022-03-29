@@ -220,12 +220,14 @@ RenderWidgetHostViewQtDelegate *QQuickWebEngineViewPrivate::CreateRenderWidgetHo
     const bool hasWindowCapability = QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::MultipleWindows);
     RenderWidgetHostViewQtDelegateQuick *quickDelegate = new RenderWidgetHostViewQtDelegateQuick(client, /*isPopup = */ true);
     if (hasWindowCapability) {
-        RenderWidgetHostViewQtDelegateQuickWindow *wrapperWindow = new RenderWidgetHostViewQtDelegateQuickWindow(quickDelegate);
+        RenderWidgetHostViewQtDelegateQuickWindow *wrapperWindow =
+                new RenderWidgetHostViewQtDelegateQuickWindow(quickDelegate, q->window());
         wrapperWindow->setVirtualParent(q);
         quickDelegate->setParentItem(wrapperWindow->contentItem());
         return wrapperWindow;
     }
     quickDelegate->setParentItem(q);
+    quickDelegate->show();
     return quickDelegate;
 }
 
@@ -235,7 +237,6 @@ void QQuickWebEngineViewPrivate::contextMenuRequested(const WebEngineContextMenu
 
     m_contextMenuData = data;
 
-    QQuickWebEngineContextMenuRequest *request = new QQuickWebEngineContextMenuRequest(data);
     QQmlEngine *engine = qmlEngine(q);
 
     // TODO: this is a workaround for QTBUG-65044
@@ -243,6 +244,7 @@ void QQuickWebEngineViewPrivate::contextMenuRequested(const WebEngineContextMenu
         return;
 
     // mark the object for gc by creating temporary jsvalue
+    QQuickWebEngineContextMenuRequest *request = new QQuickWebEngineContextMenuRequest(data);
     engine->newQObject(request);
     Q_EMIT q->contextMenuRequested(request);
 
@@ -494,9 +496,11 @@ Q_STATIC_ASSERT(static_cast<int>(WebEngineError::NoErrorDomain) == static_cast<i
 Q_STATIC_ASSERT(static_cast<int>(WebEngineError::CertificateErrorDomain) == static_cast<int>(QQuickWebEngineView::CertificateErrorDomain));
 Q_STATIC_ASSERT(static_cast<int>(WebEngineError::DnsErrorDomain) == static_cast<int>(QQuickWebEngineView::DnsErrorDomain));
 
-void QQuickWebEngineViewPrivate::loadFinished(bool success, const QUrl &url, bool isErrorPage, int errorCode, const QString &errorDescription)
+void QQuickWebEngineViewPrivate::loadFinished(bool success, const QUrl &url, bool isErrorPage, int errorCode,
+                                              const QString &errorDescription, bool triggersErrorPage)
 {
     Q_Q(QQuickWebEngineView);
+    Q_UNUSED(triggersErrorPage);
 
     if (isErrorPage) {
 #if QT_CONFIG(webengine_testsupport)

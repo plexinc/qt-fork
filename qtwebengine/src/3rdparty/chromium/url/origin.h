@@ -172,8 +172,8 @@ class COMPONENT_EXPORT(URL) Origin {
   // Copyable and movable.
   Origin(const Origin&);
   Origin& operator=(const Origin&);
-  Origin(Origin&&);
-  Origin& operator=(Origin&&);
+  Origin(Origin&&) noexcept;
+  Origin& operator=(Origin&&) noexcept;
 
   // Creates an Origin from a |scheme|, |host|, and |port|. All the parameters
   // must be valid and canonicalized. Returns nullopt if any parameter is not
@@ -288,7 +288,7 @@ class COMPONENT_EXPORT(URL) Origin {
   // Creates a string representation of the object that can be used for logging
   // and debugging. It serializes the internal state, such as the nonce value
   // and precursor information.
-  std::string GetDebugString() const;
+  std::string GetDebugString(bool include_nonce = true) const;
 
 #if defined(OS_ANDROID)
   base::android::ScopedJavaLocalRef<jobject> CreateJavaObject() const;
@@ -319,7 +319,7 @@ class COMPONENT_EXPORT(URL) Origin {
    public:
     // Creates a nonce to hold a newly-generated UnguessableToken. The actual
     // token value will be generated lazily.
-    Nonce();
+    Nonce() noexcept = default;
 
     // Creates a nonce to hold an already-generated UnguessableToken value. This
     // constructor should only be used for IPC serialization and testing --
@@ -338,8 +338,8 @@ class COMPONENT_EXPORT(URL) Origin {
     // moving it does not.
     Nonce(const Nonce&);
     Nonce& operator=(const Nonce&);
-    Nonce(Nonce&&);
-    Nonce& operator=(Nonce&&);
+    Nonce(Nonce&&) noexcept;
+    Nonce& operator=(Nonce&&) noexcept;
 
     // Note that operator<, used by maps type containers, will trigger |token_|
     // lazy-initialization. Equality comparisons do not.

@@ -1331,11 +1331,11 @@ const QString::Null QString::null = { };
   \macro QT_RESTRICTED_CAST_FROM_ASCII
   \relates QString
 
-  Defining this macro disables most automatic conversions from source
-  literals and 8-bit data to unicode QStrings, but allows the use of
+  Disables most automatic conversions from source literals and 8-bit data
+  to unicode QStrings, but allows the use of
   the \c{QChar(char)} and \c{QString(const char (&ch)[N]} constructors,
-  and the \c{QString::operator=(const char (&ch)[N])} assignment operator
-  giving most of the type-safety benefits of \c QT_NO_CAST_FROM_ASCII
+  and the \c{QString::operator=(const char (&ch)[N])} assignment operator.
+  This gives most of the type-safety benefits of \c QT_NO_CAST_FROM_ASCII
   but does not require user code to wrap character and string literals
   with QLatin1Char, QLatin1String or similar.
 
@@ -1358,7 +1358,7 @@ const QString::Null QString::null = { };
   \macro QT_NO_CAST_TO_ASCII
   \relates QString
 
-  disables automatic conversion from QString to 8-bit strings (char *)
+  Disables automatic conversion from QString to 8-bit strings (char *).
 
   \sa QT_NO_CAST_FROM_ASCII, QT_RESTRICTED_CAST_FROM_ASCII, QT_NO_CAST_FROM_BYTEARRAY
 */
@@ -1616,22 +1616,17 @@ const QString::Null QString::null = { };
     Latin-1, but there is always the risk that an implicit conversion
     from or to \c{const char *} is done using the wrong 8-bit
     encoding. To minimize these risks, you can turn off these implicit
-    conversions by defining the following two preprocessor symbols:
+    conversions by defining some of the following preprocessor symbols:
 
     \list
-    \li \c QT_NO_CAST_FROM_ASCII disables automatic conversions from
+    \li \l QT_NO_CAST_FROM_ASCII disables automatic conversions from
        C string literals and pointers to Unicode.
-    \li \c QT_RESTRICTED_CAST_FROM_ASCII allows automatic conversions
+    \li \l QT_RESTRICTED_CAST_FROM_ASCII allows automatic conversions
        from C characters and character arrays, but disables automatic
        conversions from character pointers to Unicode.
-    \li \c QT_NO_CAST_TO_ASCII disables automatic conversion from QString
+    \li \l QT_NO_CAST_TO_ASCII disables automatic conversion from QString
        to C strings.
     \endlist
-
-    One way to define these preprocessor symbols globally for your
-    application is to add the following entry to your \l {Creating Project Files}{qmake project file}:
-
-    \snippet code/src_corelib_tools_qstring.cpp 0
 
     You then need to explicitly call fromUtf8(), fromLatin1(),
     or fromLocal8Bit() to construct a QString from an
@@ -1769,7 +1764,7 @@ const QString::Null QString::null = { };
     and the \c{'+'} will automatically be performed as the
     \c{QStringBuilder} \c{'%'} everywhere.
 
-    \section1 Maximum size and out-of-memory conditions
+    \section1 Maximum Size and Out-of-memory Conditions
 
     The current version of QString is limited to just under 2 GB (2^31 bytes)
     in size. The exact value is architecture-dependent, since it depends on the
@@ -3296,7 +3291,7 @@ QString& QString::replace(QChar ch, const QString &after, Qt::CaseSensitivity cs
 
         replace_helper(indices, pos, 1, after.constData(), after.d->size);
 
-        if (Q_LIKELY(index == -1)) // Nothing left to replace
+        if (Q_LIKELY(index == size())) // Nothing left to replace
             break;
         // The call to replace_helper just moved what index points at:
         index += pos*(after.d->size - 1);
@@ -4563,13 +4558,13 @@ int QString::lastIndexOf(const QRegularExpression &re, int from, QRegularExpress
         return -1;
     }
 
-    int endpos = (from < 0) ? (size() + from + 1) : (from + 1);
+    int endpos = (from < 0) ? (size() + from + 1) : (from);
     QRegularExpressionMatchIterator iterator = re.globalMatch(*this);
     int lastIndex = -1;
     while (iterator.hasNext()) {
         QRegularExpressionMatch match = iterator.next();
         int start = match.capturedStart();
-        if (start < endpos) {
+        if (start <= endpos) {
             lastIndex = start;
             if (rmatch)
                 *rmatch = std::move(match);
@@ -4626,10 +4621,16 @@ bool QString::contains(const QRegularExpression &re, QRegularExpressionMatch *rm
     Returns the number of times the regular expression \a re matches
     in the string.
 
-    This function counts overlapping matches, so in the example
-    below, there are four instances of "ana" or "ama":
+    For historical reasons, this function counts overlapping matches,
+    so in the example below, there are four instances of "ana" or
+    "ama":
 
     \snippet qstring/main.cpp 95
+
+    This behavior is different from simply iterating over the matches
+    in the string using QRegularExpressionMatchIterator.
+
+    \sa QRegularExpression::globalMatch()
 */
 int QString::count(const QRegularExpression &re) const
 {
@@ -4640,7 +4641,7 @@ int QString::count(const QRegularExpression &re) const
     int count = 0;
     int index = -1;
     int len = length();
-    while (index < len - 1) {
+    while (index <= len - 1) {
         QRegularExpressionMatch match = re.match(*this, index + 1);
         if (!match.hasMatch())
             break;

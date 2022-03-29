@@ -29,12 +29,12 @@ MessagePipeReader::MessagePipeReader(
     : delegate_(delegate),
       sender_(std::move(sender)),
       receiver_(this, std::move(receiver)) {
-  sender_.set_disconnect_handler(base::BindRepeating(
-      &MessagePipeReader::OnPipeError, base::Unretained(this),
-      MOJO_RESULT_FAILED_PRECONDITION));
-  receiver_.set_disconnect_handler(base::BindRepeating(
-      &MessagePipeReader::OnPipeError, base::Unretained(this),
-      MOJO_RESULT_FAILED_PRECONDITION));
+  sender_.set_disconnect_handler(
+      base::BindOnce(&MessagePipeReader::OnPipeError, base::Unretained(this),
+                     MOJO_RESULT_FAILED_PRECONDITION));
+  receiver_.set_disconnect_handler(
+      base::BindOnce(&MessagePipeReader::OnPipeError, base::Unretained(this),
+                     MOJO_RESULT_FAILED_PRECONDITION));
 }
 
 MessagePipeReader::~MessagePipeReader() {
@@ -51,9 +51,8 @@ void MessagePipeReader::Close() {
 
 bool MessagePipeReader::Send(std::unique_ptr<Message> message) {
   CHECK(message->IsValid());
-  TRACE_EVENT_WITH_FLOW0(TRACE_DISABLED_BY_DEFAULT("toplevel.flow"),
-                         "MessagePipeReader::Send", message->flags(),
-                         TRACE_EVENT_FLAG_FLOW_OUT);
+  TRACE_EVENT_WITH_FLOW0("toplevel.flow", "MessagePipeReader::Send",
+                         message->flags(), TRACE_EVENT_FLAG_FLOW_OUT);
   base::Optional<std::vector<mojo::native::SerializedHandlePtr>> handles;
   MojoResult result = MOJO_RESULT_OK;
   result = ChannelMojo::ReadFromMessageAttachmentSet(message.get(), &handles);
@@ -101,9 +100,8 @@ void MessagePipeReader::Receive(MessageView message_view) {
     return;
   }
 
-  TRACE_EVENT_WITH_FLOW0(TRACE_DISABLED_BY_DEFAULT("toplevel.flow"),
-                         "MessagePipeReader::Receive", message.flags(),
-                         TRACE_EVENT_FLAG_FLOW_IN);
+  TRACE_EVENT_WITH_FLOW0("toplevel.flow", "MessagePipeReader::Receive",
+                         message.flags(), TRACE_EVENT_FLAG_FLOW_IN);
   delegate_->OnMessageReceived(message);
 }
 

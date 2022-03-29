@@ -51,6 +51,8 @@
 
 QT_BEGIN_NAMESPACE
 
+Q_LOGGING_CATEGORY(lcDimmer, "qt.quick.controls.popup.dimmer")
+
 /*!
     \qmltype Popup
     \inherits QtObject
@@ -214,6 +216,19 @@ QT_BEGIN_NAMESPACE
 
     To ensure that the popup is positioned within the bounds of the enclosing
     window, the \l margins property can be set to a non-negative value.
+
+    \section1 Popup Transitions
+
+    Since Qt 5.15.3 the following properties are restored to their original values from before
+    the enter transition after the exit transition is completed.
+
+    \list
+    \li \l opacity
+    \li \l scale
+    \endlist
+
+    This allows the built-in styles to animate on these properties without losing any explicitly
+    defined value.
 
     \sa {Popup Controls}, {Customizing Popup}, ApplicationWindow
 */
@@ -451,6 +466,11 @@ bool QQuickPopupPrivate::prepareExitTransition()
     if (transitionState == ExitTransition && transitionManager.isRunning())
         return false;
 
+    // We need to cache the original scale and opacity values so we can reset it after
+    // the exit transition is done so they have the original values again
+    prevScale = popupItem->scale();
+    prevOpacity = popupItem->opacity();
+
     if (transitionState != ExitTransition) {
         // The setFocus(false) call below removes any active focus before we're
         // able to check it in finalizeExitTransition.
@@ -481,8 +501,10 @@ void QQuickPopupPrivate::finalizeExitTransition()
 {
     Q_Q(QQuickPopup);
     getPositioner()->setParentItem(nullptr);
-    popupItem->setParentItem(nullptr);
-    popupItem->setVisible(false);
+    if (popupItem) {
+        popupItem->setParentItem(nullptr);
+        popupItem->setVisible(false);
+    }
     destroyOverlay();
 
     if (hadActiveFocusBeforeExitTransition && window) {
@@ -513,6 +535,10 @@ void QQuickPopupPrivate::finalizeExitTransition()
     hadActiveFocusBeforeExitTransition = false;
     emit q->visibleChanged();
     emit q->closed();
+    if (popupItem) {
+        popupItem->setScale(prevScale);
+        popupItem->setOpacity(prevOpacity);
+    }
 }
 
 QMarginsF QQuickPopupPrivate::getMargins() const
@@ -575,7 +601,6 @@ void QQuickPopupPrivate::setBottomMargin(qreal value, bool reset)
 
 /*!
     \since QtQuick.Controls 2.5 (Qt 5.12)
-    \qmlpropertygroup QtQuick.Controls::Popup::anchors
     \qmlproperty Object QtQuick.Controls::Popup::anchors.centerIn
 
     Anchors provide a way to position an item by specifying its
@@ -703,6 +728,8 @@ static QQuickItem *createDimmer(QQmlComponent *component, QQuickPopup *popup, QQ
         if (component)
             component->completeCreate();
     }
+    qCDebug(lcDimmer) << "finished creating dimmer from component" << component
+        << "for popup" << popup << "with parent" << parent << "- item is:" << item;
     return item;
 }
 
@@ -729,6 +756,7 @@ void QQuickPopupPrivate::createOverlay()
 void QQuickPopupPrivate::destroyOverlay()
 {
     if (dimmer) {
+        qCDebug(lcDimmer) << "destroying dimmer" << dimmer;
         dimmer->setParentItem(nullptr);
         dimmer->deleteLater();
         dimmer = nullptr;
@@ -827,6 +855,12 @@ QQuickPopup::~QQuickPopup()
     d->popupItem = nullptr;
     delete d->positioner;
     d->positioner = nullptr;
+
+    // If the popup is destroyed before the exit transition finishes,
+    // the necessary cleanup (removing modal dimmers that block mouse events,
+    // emitting closed signal, etc.) won't happen. That's why we do it manually here.
+    if (d->transitionState == QQuickPopupPrivate::ExitTransition && d->transitionManager.isRunning())
+        d->finalizeExitTransition();
 }
 
 /*!

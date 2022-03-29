@@ -164,7 +164,7 @@ protected:
 
 public slots:
     void incubate() {
-        if (incubatingObjectCount()) {
+        if (m_renderLoop && incubatingObjectCount()) {
             if (m_renderLoop->interleaveIncubation()) {
                 incubateFor(m_incubation_time);
             } else {
@@ -180,12 +180,12 @@ public slots:
 protected:
     void incubatingObjectCountChanged(int count) override
     {
-        if (count && !m_renderLoop->interleaveIncubation())
+        if (count && m_renderLoop && !m_renderLoop->interleaveIncubation())
             incubateAgain();
     }
 
 private:
-    QSGRenderLoop *m_renderLoop;
+    QPointer<QSGRenderLoop> m_renderLoop;
     int m_incubation_time;
     int m_timer;
 };
@@ -583,21 +583,10 @@ void QQuickWindowPrivate::renderSceneGraph(const QSize &size, const QSize &surfa
             fboId = renderTargetId;
             renderer->setDeviceRect(rect);
             renderer->setViewportRect(rect);
-            bool mirrorVertically = QOpenGLContext::currentContext()->format().orientationFlags() & QSurfaceFormat::MirrorVertically;
             if (QQuickRenderControl::renderWindowFor(q)) {
-                QRectF projRect(QPoint(0, 0), size);
-                QRectF mirrored(projRect.left(),
-                                mirrorVertically ? projRect.bottom() : projRect.top(),
-                                projRect.width(),
-                                mirrorVertically ? -projRect.height() : projRect.height());
-                renderer->setProjectionMatrixToRect(mirrored);
+                renderer->setProjectionMatrixToRect(QRect(QPoint(0, 0), size));
                 renderer->setDevicePixelRatio(devicePixelRatio);
             } else {
-                QRectF projRect(QPoint(0, 0), rect.size());
-                QRectF mirrored(projRect.left(),
-                                mirrorVertically ? projRect.bottom() : projRect.top(),
-                                projRect.width(),
-                                mirrorVertically ? -projRect.height() : projRect.height());
                 renderer->setProjectionMatrixToRect(QRect(QPoint(0, 0), rect.size()));
                 renderer->setDevicePixelRatio(1);
             }
@@ -2875,6 +2864,14 @@ void QQuickWindowPrivate::deliverMatchingPointsToItem(QQuickItem *item, QQuickPo
 {
     Q_Q(QQuickWindow);
     QQuickItemPrivate *itemPrivate = QQuickItemPrivate::get(item);
+#if defined(Q_OS_ANDROID) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    // QTBUG-85379
+    // In QT_VERSION below 6.0.0 touchEnabled for QtQuickItems is set by default to true
+    // It causes delivering touch events to Items which are not interested
+    // In some cases (like using Material Style in Android) it may cause a crash
+    if (itemPrivate->wasDeleted)
+        return;
+#endif
     pointerEvent->localize(item);
 
     // Let the Item's handlers (if any) have the event first.

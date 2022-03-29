@@ -97,4 +97,5 @@ echo "Set Network Test Server address to $NTS_IP in /etc/hosts"
 echo "$NTS_IP    qt-test-server qt-test-server.qt-test-net" | sudo tee -a /etc/hosts
 
 sudo systemsetup settimezone GMT
+sudo systemsetup setusingnetworktime off
 sudo rm -f "$targetFile"

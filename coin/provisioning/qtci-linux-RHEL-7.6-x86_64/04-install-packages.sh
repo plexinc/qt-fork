@@ -2,7 +2,7 @@
 
 #############################################################################
 ##
-## Copyright (C) 2020 The Qt Company Ltd.
+## Copyright (C) 2021 The Qt Company Ltd.
 ## Contact: http://www.qt.io/licensing/
 ##
 ## This file is part of the provisioning scripts of the Qt Toolkit.
@@ -80,7 +80,7 @@ installPackages+=(pulseaudio-libs-devel)
 installPackages+=(libXtst-devel)
 installPackages+=(nspr-devel)
 installPackages+=(nss-devel)
-installPackages+=(rh-nodejs12-nodejs)
+installPackages+=(rh-nodejs12-nodejs) # NOTE! Nodejs12 needs to be added to PATH!
 installPackages+=(rh-nodejs12-nodejs-devel)
 # For Android builds
 installPackages+=(java-1.8.0-openjdk-devel)
@@ -133,7 +133,7 @@ sudo ln -s /opt/rh/rh-python36/root/usr/bin/python3 /usr/local/bin/python3
 sudo ln -s /opt/rh/rh-python36/root/usr/bin/pip3 /usr/local/bin/pip3
 # We shouldn't use yum to install virtualenv. The one found from package repo is not
 # working, but we can use installed pip
-sudo pip install --upgrade pip
+sudo pip install --upgrade "pip < 21.0"
 sudo pip install virtualenv wheel
 
 # Needed by packaging scripts
@@ -146,3 +146,8 @@ sudo /usr/local/bin/pip3 install wheel
 # shellcheck source=../common/unix/SetEnvVar.sh
 source "${BASH_SOURCE%/*}/../common/unix/SetEnvVar.sh"
 SetEnvVar "PYTHON3_WHEEL_CACHE" "$HOME/python3-wheels"
+SetEnvVar "PATH" "/opt/rh/rh-nodejs12/root/usr/bin:\$PATH"
+
+gccVersion="$(gcc --version |grep gcc |cut -b 11-16)"
+echo "GCC = $gccVersion" >> versions.txt
+

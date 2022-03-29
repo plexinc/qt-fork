@@ -336,6 +336,8 @@ QWaylandGLContext::QWaylandGLContext(EGLDisplay eglDisplay, QWaylandDisplay *dis
                                << "It may also cause the event loop to freeze in some situations";
     }
 
+    m_supportSurfaceLessContext = q_hasEglExtension(m_eglDisplay, "EGL_KHR_surfaceless_context");
+
     updateGLFormat();
 }
 
@@ -404,6 +406,8 @@ void QWaylandGLContext::updateGLFormat()
 QWaylandGLContext::~QWaylandGLContext()
 {
     delete m_blitter;
+    if (m_decorationsContext != EGL_NO_CONTEXT)
+        eglDestroyContext(m_eglDisplay, m_decorationsContext);
     eglDestroyContext(m_eglDisplay, m_context);
 }
 
@@ -437,6 +441,10 @@ bool QWaylandGLContext::makeCurrent(QPlatformSurface *surface)
     if (eglSurface == EGL_NO_SURFACE) {
         window->updateSurface(true);
         eglSurface = window->eglSurface();
+    }
+
+    if (eglSurface == EGL_NO_SURFACE && m_supportSurfaceLessContext) {
+        return false;
     }
 
     if (!eglMakeCurrent(m_eglDisplay, eglSurface, eglSurface, m_context)) {

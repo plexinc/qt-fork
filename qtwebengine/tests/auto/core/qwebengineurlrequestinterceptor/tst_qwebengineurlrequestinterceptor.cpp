@@ -70,12 +70,15 @@ private Q_SLOTS:
     void requestInterceptorByResourceType();
     void firstPartyUrlHttp_data();
     void firstPartyUrlHttp();
-    void passRefererHeader_data();
-    void passRefererHeader();
+    void customHeaders_data();
+    void customHeaders();
     void initiator_data();
     void initiator();
     void jsServiceWorker_data();
     void jsServiceWorker();
+    void replaceInterceptor_data();
+    void replaceInterceptor();
+    void replaceOnIntercept();
 };
 
 tst_QWebEngineUrlRequestInterceptor::tst_QWebEngineUrlRequestInterceptor()
@@ -116,36 +119,43 @@ struct RequestInfo {
     int resourceType;
 };
 
-static const QByteArray kHttpHeaderReferrerValue = QByteArrayLiteral("http://somereferrer.com/");
-static const QByteArray kHttpHeaderRefererName = QByteArrayLiteral("referer");
 static const QUrl kRedirectUrl = QUrl("qrc:///resources/content.html");
+
+Q_LOGGING_CATEGORY(lc, "qt.webengine.tests")
 
 class TestRequestInterceptor : public QWebEngineUrlRequestInterceptor
 {
 public:
     QList<RequestInfo> requestInfos;
     bool shouldRedirect = false;
+    QUrl redirectUrl;
     QMap<QUrl, QSet<QUrl>> requestInitiatorUrls;
     QMap<QByteArray, QByteArray> headers;
+    std::function<bool (QWebEngineUrlRequestInfo &)> onIntercept;
 
     void interceptRequest(QWebEngineUrlRequestInfo &info) override
     {
         QCOMPARE(QThread::currentThread() == QCoreApplication::instance()->thread(), !property("deprecated").toBool());
+        qCDebug(lc) << this << "Type:" << info.resourceType() << info.requestMethod() << "Navigation:" << info.navigationType()
+                    << info.requestUrl() << "Initiator:" << info.initiator();
 
         // Since 63 we also intercept some unrelated blob requests..
         if (info.requestUrl().scheme() == QLatin1String("blob"))
             return;
 
+        if (onIntercept && !onIntercept(info))
+            return;
+
         bool block = info.requestMethod() != QByteArrayLiteral("GET");
-        bool redirect = shouldRedirect && info.requestUrl() != kRedirectUrl;
+        bool redirect = shouldRedirect && info.requestUrl() != redirectUrl;
+
+        // set additional headers if any required by test
+        for (auto it = headers.begin(); it != headers.end(); ++it) info.setHttpHeader(it.key(), it.value());
 
         if (block) {
             info.block(true);
         } else if (redirect) {
-            info.redirect(kRedirectUrl);
-        } else {
-            // set additional headers if any required by test
-            for (auto it = headers.begin(); it != headers.end(); ++it) info.setHttpHeader(it.key(), it.value());
+            info.redirect(redirectUrl);
         }
 
         requestInitiatorUrls[info.requestUrl()].insert(info.initiator());
@@ -195,8 +205,8 @@ public:
         return false;
     }
 
-    TestRequestInterceptor(bool redirect)
-        : shouldRedirect(redirect)
+    TestRequestInterceptor(bool redirect = false, const QUrl &url = kRedirectUrl)
+        : shouldRedirect(redirect), redirectUrl(url)
     {
     }
 };
@@ -627,43 +637,69 @@ void tst_QWebEngineUrlRequestInterceptor::firstPartyUrlHttp()
         QCOMPARE(info.firstPartyUrl, firstPartyUrl);
 }
 
-void tst_QWebEngineUrlRequestInterceptor::passRefererHeader_data()
+void tst_QWebEngineUrlRequestInterceptor::customHeaders_data()
 {
     interceptRequest_data();
 }
 
-void tst_QWebEngineUrlRequestInterceptor::passRefererHeader()
+void tst_QWebEngineUrlRequestInterceptor::customHeaders()
 {
     QFETCH(InterceptorSetter, setter);
     // Create HTTP Server to parse the request.
     HttpServer httpServer;
-
-    if (!httpServer.start())
-        QSKIP("Failed to start http server");
-
-    bool succeeded = false;
-    connect(&httpServer, &HttpServer::newRequest, [&succeeded](HttpReqRep *rr) {
-        const QByteArray headerValue = rr->requestHeader(kHttpHeaderRefererName);
-        QCOMPARE(headerValue, kHttpHeaderReferrerValue);
-        succeeded = headerValue == kHttpHeaderReferrerValue;
-        rr->sendResponse();
-    });
+    httpServer.setResourceDirs({ TESTS_SOURCE_DIR "qwebengineurlrequestinterceptor/resources" });
+    QVERIFY(httpServer.start());
 
     QWebEngineProfile profile;
     TestRequestInterceptor interceptor(false);
-    interceptor.headers.insert(kHttpHeaderRefererName, kHttpHeaderReferrerValue);
     (profile.*setter)(&interceptor);
 
     QWebEnginePage page(&profile);
     QSignalSpy spy(&page, SIGNAL(loadFinished(bool)));
-    QWebEngineHttpRequest httpRequest;
-    QUrl requestUrl = httpServer.url();
-    httpRequest.setUrl(requestUrl);
-    page.load(httpRequest);
 
+    interceptor.headers = {
+        { "referer", "http://somereferrer.com/" },
+        { "from", "user@example.com" },
+        { "user-agent", "mozilla/5.0 (x11; linux x86_64; rv:12.0) gecko/20100101 firefox/12.0" },
+    };
+
+    QMap<QByteArray, QByteArray> actual, expected;
+    connect(&httpServer, &HttpServer::newRequest, [&] (HttpReqRep *rr) {
+        for (auto it = expected.begin(); it != expected.end(); ++it) {
+            auto headerValue = rr->requestHeader(it.key());
+            actual[it.key()] = headerValue;
+            QCOMPARE(headerValue, it.value());
+        }
+    });
+
+    auto dumpHeaders = [&] () {
+        QString s; QDebug d(&s);
+        for (auto it = expected.begin(); it != expected.end(); ++it)
+            d << "\n\tHeader:" << it.key() << "| actual:" << actual[it.key()] << "expected:" << it.value();
+        return s;
+    };
+
+    expected = interceptor.headers;
+    page.load(httpServer.url("/content.html"));
     QVERIFY(spy.wait());
+    QVERIFY2(actual == expected, qPrintable(dumpHeaders()));
+
+    // test that custom headers are also applied on redirect
+    interceptor.shouldRedirect = true;
+    interceptor.redirectUrl = httpServer.url("/content2.html");
+    interceptor.headers = {
+        { "referer", "http://somereferrer2.com/" },
+        { "from", "user2@example.com" },
+        { "user-agent", "mozilla/5.0 (compatible; googlebot/2.1; +http://www.google.com/bot.html)" },
+    };
+
+    actual.clear();
+    expected = interceptor.headers;
+    page.triggerAction(QWebEnginePage::Reload);
+    QVERIFY(spy.wait());
+    QVERIFY2(actual == expected, qPrintable(dumpHeaders()));
+
     (void) httpServer.stop();
-    QVERIFY(succeeded);
 }
 
 void tst_QWebEngineUrlRequestInterceptor::initiator_data()
@@ -769,6 +805,126 @@ void tst_QWebEngineUrlRequestInterceptor::jsServiceWorker()
         QCOMPARE(info.firstPartyUrl, firstPartyUrl);
 
     QVERIFY(server.stop());
+}
+
+void tst_QWebEngineUrlRequestInterceptor::replaceInterceptor_data()
+{
+    QTest::addColumn<bool>("firstInterceptIsInPage");
+    QTest::addColumn<bool>("keepInterceptionPoint");
+    QTest::newRow("page")         << true << true;
+    QTest::newRow("page-profile") << true << false;
+    QTest::newRow("profile")      << false << true;
+    QTest::newRow("profile-page") << false << false;
+}
+
+void tst_QWebEngineUrlRequestInterceptor::replaceInterceptor()
+{
+    QFETCH(bool, firstInterceptIsInPage);
+    QFETCH(bool, keepInterceptionPoint);
+
+    HttpServer server;
+    server.setResourceDirs({ ":/resources" });
+    QVERIFY(server.start());
+
+    QWebEngineProfile profile;
+    profile.settings()->setAttribute(QWebEngineSettings::ErrorPageEnabled, false);
+    QWebEnginePage page(&profile);
+    QSignalSpy spy(&page, SIGNAL(loadFinished(bool)));
+    bool fetchFinished = false;
+
+    auto setInterceptor = [&] (QWebEngineUrlRequestInterceptor *interceptor, bool interceptInPage) {
+        interceptInPage ? page.setUrlRequestInterceptor(interceptor) : profile.setUrlRequestInterceptor(interceptor);
+    };
+
+    std::vector<TestRequestInterceptor> interceptors(3);
+    std::vector<int> requestsOnReplace;
+    setInterceptor(&interceptors.front(), firstInterceptIsInPage);
+
+    auto sc = connect(&page, &QWebEnginePage::loadFinished, [&] () {
+        auto currentInterceptorIndex = requestsOnReplace.size();
+        requestsOnReplace.push_back(interceptors[currentInterceptorIndex].requestInfos.size());
+
+        bool isFirstReinstall = currentInterceptorIndex == 0;
+        bool interceptInPage = keepInterceptionPoint ? firstInterceptIsInPage : (isFirstReinstall ^ firstInterceptIsInPage);
+        setInterceptor(&interceptors[++currentInterceptorIndex], interceptInPage);
+        if (!keepInterceptionPoint)
+            setInterceptor(nullptr, !interceptInPage);
+
+        if (isFirstReinstall) {
+            page.triggerAction(QWebEnginePage::Reload);
+        } else {
+            page.runJavaScript("fetch('http://nonexistent.invalid').catch(() => {})", [&, interceptInPage] (const QVariant &) {
+                requestsOnReplace.push_back(interceptors.back().requestInfos.size());
+                setInterceptor(nullptr, interceptInPage);
+                fetchFinished = true;
+            });
+        }
+    });
+
+    page.setUrl(server.url("/favicon.html"));
+    QTRY_COMPARE(spy.count(), 2);
+    QTRY_VERIFY(fetchFinished);
+
+    QString s; QDebug d(&s);
+    for (auto i = 0u; i < interceptors.size(); ++i) {
+        auto &&interceptor = interceptors[i];
+        auto &&requests = interceptor.requestInfos;
+        d << "\nInterceptor [" << i << "] with" << requestsOnReplace[i] << "requests on replace and" << requests.size() << "in the end:";
+        for (int j = 0; j < requests.size(); ++j) {
+            auto &&r = requests[j];
+            d << "\n\t" << j << "| url:" << r.requestUrl << "firstPartyUrl:" << r.firstPartyUrl;
+        }
+        QVERIFY2(!requests.isEmpty(), qPrintable(s));
+        QVERIFY2(requests.size() == requestsOnReplace[i], qPrintable(s));
+    }
+}
+
+void tst_QWebEngineUrlRequestInterceptor::replaceOnIntercept()
+{
+    HttpServer server;
+    server.setResourceDirs({ ":/resources" });
+    QVERIFY(server.start());
+
+    QWebEngineProfile profile;
+    profile.settings()->setAttribute(QWebEngineSettings::ErrorPageEnabled, false);
+    QWebEnginePage page(&profile);
+    QSignalSpy spy(&page, SIGNAL(loadFinished(bool)));
+
+    struct Interceptor : QWebEngineUrlRequestInterceptor {
+        Interceptor(const std::function<void ()> &a) : action(a) { }
+        void interceptRequest(QWebEngineUrlRequestInfo &) override { action(); }
+        std::function<void ()> action;
+        int interceptRequestReceived = 0;
+    };
+
+    TestRequestInterceptor profileInterceptor, pageInterceptor1, pageInterceptor2;
+    page.setUrlRequestInterceptor(&pageInterceptor1);
+    profile.setUrlRequestInterceptor(&profileInterceptor);
+    profileInterceptor.onIntercept = [&] (QWebEngineUrlRequestInfo &) {
+        page.setUrlRequestInterceptor(&pageInterceptor2);
+        return true;
+    };
+
+    page.setUrl(server.url("/favicon.html"));
+    QTRY_COMPARE(spy.count(), 1);
+    QTRY_COMPARE(profileInterceptor.requestInfos.size(), 2);
+
+    // if interceptor for page was replaced on intercept call in profile then, since request first
+    // comes to profile, forward to page's interceptor should land to second one
+    QCOMPARE(pageInterceptor1.requestInfos.size(), 0);
+    QCOMPARE(profileInterceptor.requestInfos.size(), pageInterceptor2.requestInfos.size());
+
+    page.setUrlRequestInterceptor(&pageInterceptor1);
+    bool fetchFinished = false;
+    page.runJavaScript("fetch('http://nonexistent.invalid').catch(() => {})", [&] (const QVariant &) {
+        page.setUrlRequestInterceptor(&pageInterceptor2);
+        fetchFinished = true;
+    });
+
+    QTRY_VERIFY(fetchFinished);
+    QCOMPARE(profileInterceptor.requestInfos.size(), 3);
+    QCOMPARE(pageInterceptor1.requestInfos.size(), 0);
+    QCOMPARE(profileInterceptor.requestInfos.size(), pageInterceptor2.requestInfos.size());
 }
 
 QTEST_MAIN(tst_QWebEngineUrlRequestInterceptor)

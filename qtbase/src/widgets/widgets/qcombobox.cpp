@@ -1943,6 +1943,7 @@ void QComboBox::setEditable(bool editable)
             view()->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         }
         QLineEdit *le = new QLineEdit(this);
+        le->setPalette(palette());
         setLineEdit(le);
     } else {
         if (style()->styleHint(QStyle::SH_ComboBox_Popup, &opt, this)) {
@@ -2761,8 +2762,10 @@ void QComboBox::showPopup()
 #endif
 
     // set current item and select it
-    view()->selectionModel()->setCurrentIndex(d->currentIndex,
-                                              QItemSelectionModel::ClearAndSelect);
+    QItemSelectionModel::SelectionFlags selectionMode = QItemSelectionModel::ClearAndSelect;
+    if (view()->selectionBehavior() == QAbstractItemView::SelectRows)
+        selectionMode.setFlag(QItemSelectionModel::Rows);
+    view()->selectionModel()->setCurrentIndex(d->currentIndex, selectionMode);
     QComboBoxPrivateContainer* container = d->viewContainer();
     QRect listRect(style->subControlRect(QStyle::CC_ComboBox, &opt,
                                          QStyle::SC_ComboBoxListBoxPopup, this));
@@ -3180,8 +3183,10 @@ void QComboBox::paintEvent(QPaintEvent *)
     initStyleOption(&opt);
     painter.drawComplexControl(QStyle::CC_ComboBox, opt);
 
-    if (currentIndex() < 0)
-        opt.palette.setBrush(QPalette::ButtonText, opt.palette.brush(QPalette::ButtonText).color().lighter());
+    if (currentIndex() < 0 && !placeholderText().isEmpty()) {
+        opt.palette.setBrush(QPalette::ButtonText, opt.palette.placeholderText());
+        opt.currentText = placeholderText();
+    }
 
     // draw the icon and text
     painter.drawControl(QStyle::CE_ComboBoxLabel, opt);

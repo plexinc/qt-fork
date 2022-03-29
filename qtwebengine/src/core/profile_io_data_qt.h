@@ -53,7 +53,6 @@
 
 namespace net {
 class ClientCertStore;
-class URLRequestContext;
 }
 
 namespace extensions {
@@ -70,7 +69,7 @@ class BrowsingDataRemoverObserverQt : public content::BrowsingDataRemover::Obser
 public:
     BrowsingDataRemoverObserverQt(ProfileIODataQt *profileIOData);
 
-    void OnBrowsingDataRemoverDone() override;
+    void OnBrowsingDataRemoverDone(uint64_t) override;
 
 private:
     ProfileIODataQt *m_profileIOData;
@@ -97,13 +96,15 @@ public:
 
     bool canGetCookies(const QUrl &firstPartyUrl, const QUrl &url) const;
 
-    // Used in NetworkDelegateQt::OnBeforeURLRequest.
     void setFullConfiguration(); // runs on ui thread
     void resetNetworkContext(); // runs on ui thread
     void clearHttpCache(); // runs on ui thread
     bool isClearHttpCacheInProgress() { return m_clearHttpCacheInProgress; }
 
-    network::mojom::NetworkContextParamsPtr CreateNetworkContextParams();
+    void ConfigureNetworkContextParams(bool in_memory,
+                                       const base::FilePath &relative_partition_path,
+                                       network::mojom::NetworkContextParams *network_context_params,
+                                       network::mojom::CertVerifierCreationParams *cert_verifier_creation_params);
 
 #if QT_CONFIG(ssl)
     ClientCertificateStoreData *clientCertificateStoreData();
@@ -142,7 +143,6 @@ private:
     QRecursiveMutex m_mutex;
 #endif
     int m_httpCacheMaxSize = 0;
-    bool m_useForGlobalCertificateVerification = false;
     BrowsingDataRemoverObserverQt m_removerObserver;
     QString m_dataPath;
     bool m_clearHttpCacheInProgress = false;

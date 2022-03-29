@@ -14,10 +14,11 @@
 #include "src/codegen/register-configuration.h"
 #include "src/codegen/string-constants.h"
 #include "src/codegen/x64/assembler-x64.h"
+#include "src/common/external-pointer.h"
 #include "src/common/globals.h"
 #include "src/debug/debug.h"
 #include "src/execution/frames-inl.h"
-#include "src/heap/heap-inl.h"  // For MemoryChunk.
+#include "src/heap/memory-chunk.h"
 #include "src/init/bootstrapper.h"
 #include "src/logging/counters.h"
 #include "src/objects/objects-inl.h"
@@ -338,6 +339,14 @@ void TurboAssembler::SaveRegisters(RegList registers) {
     if ((registers >> i) & 1u) {
       pushq(Register::from_code(i));
     }
+  }
+}
+
+void TurboAssembler::LoadExternalPointerField(Register destination,
+                                              Operand field_operand) {
+  movq(destination, field_operand);
+  if (V8_HEAP_SANDBOX_BOOL) {
+    xorq(destination, Immediate(kExternalPointerSalt));
   }
 }
 
@@ -1342,6 +1351,12 @@ void TurboAssembler::Move(XMMRegister dst, uint64_t src) {
       }
     }
   }
+}
+
+void TurboAssembler::Move(XMMRegister dst, uint64_t high, uint64_t low) {
+  Move(dst, low);
+  movq(kScratchRegister, high);
+  Pinsrq(dst, kScratchRegister, int8_t{1});
 }
 
 // ----------------------------------------------------------------------------
@@ -2350,6 +2365,51 @@ void MacroAssembler::InvokePrologue(Register expected_parameter_count,
                                     Label* done, InvokeFlag flag) {
   if (expected_parameter_count != actual_parameter_count) {
     Label regular_invoke;
+#ifdef V8_NO_ARGUMENTS_ADAPTOR
+    // Skip if adaptor sentinel.
+    cmpl(expected_parameter_count, Immediate(kDontAdaptArgumentsSentinel));
+    j(equal, &regular_invoke, Label::kNear);
+
+    // Skip if overapplication or if expected number of arguments.
+    subq(expected_parameter_count, actual_parameter_count);
+    j(less_equal, &regular_invoke, Label::kNear);
+
+    // Underapplication. Move the arguments already in the stack, including the
+    // receiver and the return address.
+    {
+      Label copy, check;
+      Register src = r8, dest = rsp, num = r9, current = r11;
+      movq(src, rsp);
+      leaq(kScratchRegister,
+           Operand(expected_parameter_count, times_system_pointer_size, 0));
+      AllocateStackSpace(kScratchRegister);
+      // Extra words are the receiver and the return address (if a jump).
+      int extra_words = flag == CALL_FUNCTION ? 1 : 2;
+      leaq(num, Operand(rax, extra_words));  // Number of words to copy.
+      Set(current, 0);
+      // Fall-through to the loop body because there are non-zero words to copy.
+      bind(&copy);
+      movq(kScratchRegister,
+           Operand(src, current, times_system_pointer_size, 0));
+      movq(Operand(dest, current, times_system_pointer_size, 0),
+           kScratchRegister);
+      incq(current);
+      bind(&check);
+      cmpq(current, num);
+      j(less, &copy);
+      leaq(r8, Operand(rsp, num, times_system_pointer_size, 0));
+    }
+    // Fill remaining expected arguments with undefined values.
+    LoadRoot(kScratchRegister, RootIndex::kUndefinedValue);
+    {
+      Label loop;
+      bind(&loop);
+      decq(expected_parameter_count);
+      movq(Operand(r8, expected_parameter_count, times_system_pointer_size, 0),
+           kScratchRegister);
+      j(greater, &loop, Label::kNear);
+    }
+#else
     // Both expected and actual are in (different) registers. This
     // is the case when we invoke functions using call and apply.
     cmpq(expected_parameter_count, actual_parameter_count);
@@ -2363,6 +2423,8 @@ void MacroAssembler::InvokePrologue(Register expected_parameter_count,
     } else {
       Jump(adaptor, RelocInfo::CODE_TARGET);
     }
+#endif
+
     bind(&regular_invoke);
   } else {
     Move(rax, actual_parameter_count);
@@ -2415,8 +2477,9 @@ void TurboAssembler::StubPrologue(StackFrame::Type type) {
 void TurboAssembler::Prologue() {
   pushq(rbp);  // Caller's frame pointer.
   movq(rbp, rsp);
-  Push(rsi);  // Callee's context.
-  Push(rdi);  // Callee's JS function.
+  Push(kContextRegister);                 // Callee's context.
+  Push(kJSFunctionRegister);              // Callee's JS function.
+  Push(kJavaScriptCallArgCountRegister);  // Actual argument count.
 }
 
 void TurboAssembler::EnterFrame(StackFrame::Type type) {
@@ -2747,10 +2810,10 @@ void TurboAssembler::CheckPageFlag(Register object, Register scratch, int mask,
     andq(scratch, object);
   }
   if (mask < (1 << kBitsPerByte)) {
-    testb(Operand(scratch, MemoryChunk::kFlagsOffset),
+    testb(Operand(scratch, BasicMemoryChunk::kFlagsOffset),
           Immediate(static_cast<uint8_t>(mask)));
   } else {
-    testl(Operand(scratch, MemoryChunk::kFlagsOffset), Immediate(mask));
+    testl(Operand(scratch, BasicMemoryChunk::kFlagsOffset), Immediate(mask));
   }
   j(cc, condition_met, condition_met_distance);
 }

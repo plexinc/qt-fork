@@ -254,7 +254,7 @@ MaybeHandle<T> FormatListCommon(
   std::vector<icu::UnicodeString> array = maybe_array.FromJust();
 
   icu::ListFormatter* formatter = format->icu_formatter().raw();
-  CHECK_NOT_NULL(formatter);
+  DCHECK_NOT_NULL(formatter);
 
   UErrorCode status = U_ZERO_ERROR;
   icu::FormattedList formatted = formatter->formatStringsToValue(
@@ -331,8 +331,7 @@ struct CheckListPattern {
 }  // namespace
 
 const std::set<std::string>& JSListFormat::GetAvailableLocales() {
-  static base::LazyInstance<
-      Intl::AvailableLocales<icu::Locale, CheckListPattern>>::type
+  static base::LazyInstance<Intl::AvailableLocales<CheckListPattern>>::type
       available_locales = LAZY_INSTANCE_INITIALIZER;
   return available_locales.Pointer()->Get();
 }

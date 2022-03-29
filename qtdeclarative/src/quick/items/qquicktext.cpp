@@ -398,6 +398,8 @@ void QQuickTextPrivate::updateSize()
         layedOutTextRect = QRectF(0, 0, 0, fontHeight);
         advance = QSizeF();
         signalSizeChange(previousSize);
+        lineCount = 1;
+        emit q->lineCountChanged();
         updateType = UpdatePaintNode;
         q->update();
         return;
@@ -2425,7 +2427,10 @@ void QQuickText::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeo
             }
         }
     } else if (!heightChanged && widthMaximum) {
-        goto geomChangeDone;
+        if (!qFuzzyIsNull(oldGeometry.width())) {
+            // no change to height, width is adequate and wasn't 0 before
+            goto geomChangeDone;
+        }
     }
 
     if (d->updateOnComponentComplete || d->textHasChanged) {

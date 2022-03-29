@@ -51,7 +51,7 @@
         "removeRedundantMaterials": {
             "name": "Remove Redundant Materials",
             "description": "Searches for redundant/unreferenced materials and removes them.",
-            "value": true,
+            "value": false,
             "type": "Boolean"
         },
         "fixInfacingNormals": {
@@ -105,7 +105,7 @@
         "globalScaleValue": {
             "name": "Global Scale Value",
             "description": "Global Scale factor.",
-            "value": 100,
+            "value": 1,
             "type": "Real",
             "conditions": [
                 {

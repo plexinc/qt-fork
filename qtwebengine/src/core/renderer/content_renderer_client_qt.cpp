@@ -50,7 +50,6 @@
 #include "components/cdm/renderer/external_clear_key_key_system_properties.h"
 #include "components/cdm/renderer/widevine_key_system_properties.h"
 #include "components/error_page/common/error.h"
-#include "components/error_page/common/error_page_params.h"
 #include "components/error_page/common/localized_error.h"
 #include "components/network_hints/renderer/web_prescient_networking_impl.h"
 #if QT_CONFIG(webengine_printing_and_pdf)
@@ -75,7 +74,6 @@
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/webui/jstemplate_builder.h"
-#include "content/public/common/web_preferences.h"
 
 #if QT_CONFIG(webengine_printing_and_pdf)
 #include "renderer/print_web_view_helper_delegate_qt.h"
@@ -83,8 +81,8 @@
 
 #include "common/qt_messages.h"
 #include "renderer/render_frame_observer_qt.h"
-#include "renderer/render_view_observer_qt.h"
-#include "renderer/render_thread_observer_qt.h"
+#include "renderer/web_engine_page_render_frame.h"
+#include "renderer/render_configuration.h"
 #include "renderer/user_resource_controller.h"
 #if QT_CONFIG(webengine_webchannel)
 #include "renderer/web_channel_ipc_transport.h"
@@ -103,7 +101,6 @@
 
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "services/service_manager/public/cpp/connector.h"
-#include "services/service_manager/public/cpp/service_binding.h"
 
 #include "components/grit/components_resources.h"
 
@@ -114,6 +111,10 @@
 #include "media/base/video_codecs.h"
 #include "third_party/widevine/cdm/buildflags.h"
 #include "third_party/widevine/cdm/widevine_cdm_common.h"
+#endif
+
+#if QT_CONFIG(webengine_webrtc) && QT_CONFIG(webengine_extensions)
+#include "chrome/renderer/media/webrtc_logging_agent_impl.h"
 #endif
 
 namespace QtWebEngineCore {
@@ -133,12 +134,13 @@ ContentRendererClientQt::~ContentRendererClientQt() {}
 void ContentRendererClientQt::RenderThreadStarted()
 {
     content::RenderThread *renderThread = content::RenderThread::Get();
-    m_renderThreadObserver.reset(new RenderThreadObserverQt());
+    m_renderConfiguration.reset(new RenderConfiguration());
+    m_userResourceController.reset(new UserResourceController());
     m_visitedLinkReader.reset(new visitedlink::VisitedLinkReader);
     m_webCacheImpl.reset(new web_cache::WebCacheImpl());
 
-    renderThread->AddObserver(m_renderThreadObserver.data());
-    renderThread->AddObserver(UserResourceController::instance());
+    renderThread->AddObserver(m_renderConfiguration.data());
+    renderThread->AddObserver(m_userResourceController.data());
 
 #if QT_CONFIG(webengine_spellchecker)
     if (!m_spellCheck)
@@ -185,25 +187,29 @@ void ContentRendererClientQt::ExposeInterfacesToBrowser(mojo::BinderMap* binders
                          }, this),
                  base::SequencedTaskRunnerHandle::Get());
 #endif
-}
 
-void ContentRendererClientQt::RenderViewCreated(content::RenderView *render_view)
-{
-    // RenderViewObservers destroy themselves with their RenderView.
-    new RenderViewObserverQt(render_view);
-    UserResourceController::instance()->renderViewCreated(render_view);
+#if QT_CONFIG(webengine_webrtc) && QT_CONFIG(webengine_extensions)
+    binders->Add(base::BindRepeating(
+                         [](ContentRendererClientQt *client,
+                            mojo::PendingReceiver<chrome::mojom::WebRtcLoggingAgent> receiver) {
+                                client->GetWebRtcLoggingAgent()->AddReceiver(std::move(receiver));
+                         }, this),
+                 base::SequencedTaskRunnerHandle::Get());
+#endif
 }
 
 void ContentRendererClientQt::RenderFrameCreated(content::RenderFrame *render_frame)
 {
     QtWebEngineCore::RenderFrameObserverQt *render_frame_observer =
             new QtWebEngineCore::RenderFrameObserverQt(render_frame, m_webCacheImpl.data());
+    if (render_frame->IsMainFrame()) {
 #if QT_CONFIG(webengine_webchannel)
-    if (render_frame->IsMainFrame())
         new WebChannelIPCTransport(render_frame);
 #endif
+        new WebEnginePageRenderFrame(render_frame);
+    }
 
-    UserResourceController::instance()->renderFrameCreated(render_frame);
+    m_userResourceController->renderFrameCreated(render_frame);
 
     new QtWebEngineCore::ContentSettingsObserverQt(render_frame);
 
@@ -234,7 +240,7 @@ void ContentRendererClientQt::RunScriptsAtDocumentEnd(content::RenderFrame *rend
     RenderFrameObserverQt *render_frame_observer = RenderFrameObserverQt::Get(render_frame);
 
     if (render_frame_observer && !render_frame_observer->isFrameDetached())
-        UserResourceController::instance()->RunScriptsAtDocumentEnd(render_frame);
+        m_userResourceController->RunScriptsAtDocumentEnd(render_frame);
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
     ExtensionsRendererClientQt::GetInstance()->RunScriptsAtDocumentEnd(render_frame);
@@ -258,11 +264,6 @@ bool ContentRendererClientQt::HasErrorPage(int httpStatusCode)
     }
 
     return true;
-}
-
-bool ContentRendererClientQt::ShouldSuppressErrorPage(content::RenderFrame *frame, const GURL &)
-{
-    return !(frame->GetWebkitPreferences().enable_error_page);
 }
 
 // To tap into the chromium localized strings. Ripped from the chrome layer (highly simplified).
@@ -305,10 +306,10 @@ void ContentRendererClientQt::GetNavigationErrorStringsInternal(content::RenderF
         // NetErrorHelper::GetErrorStringsForDnsProbe, but that one is harder to untangle.
 
         error_page::LocalizedError::PageState errorPageState =
-            error_page::LocalizedError::GetPageState(
-                error.reason(), error.domain(), error.url(), isPost,
-                false, error.stale_copy_in_cache(), false, RenderThreadObserverQt::is_incognito_process(), false,
-                false, false, locale, std::unique_ptr<error_page::ErrorPageParams>());
+                error_page::LocalizedError::GetPageState(
+                        error.reason(), error.domain(), error.url(), isPost, false,
+                        error.stale_copy_in_cache(), false,
+                        RenderConfiguration::is_incognito_process(), false, false, false, locale);
 
         resourceId = IDR_NET_ERROR_HTML;
 
@@ -379,25 +380,16 @@ blink::WebPlugin* ContentRendererClientQt::CreatePlugin(content::RenderFrame* re
 }
 #endif  //BUILDFLAG(ENABLE_PLUGINS)
 
-content::BrowserPluginDelegate *ContentRendererClientQt::CreateBrowserPluginDelegate(content::RenderFrame *render_frame,
-                                                                                     const content::WebPluginInfo &info,
-                                                                                     const std::string &mime_type,
-                                                                                     const GURL &original_url)
+#if QT_CONFIG(webengine_webrtc) && QT_CONFIG(webengine_extensions)
+chrome::WebRtcLoggingAgentImpl *ContentRendererClientQt::GetWebRtcLoggingAgent()
 {
-#if BUILDFLAG(ENABLE_EXTENSIONS)
-    return ExtensionsRendererClientQt::GetInstance()->CreateBrowserPluginDelegate(render_frame, info, mime_type,
-                                                                                  original_url);
-#else
-    return nullptr;
-#endif
-}
+    if (!m_webrtcLoggingAgentImpl) {
+        m_webrtcLoggingAgentImpl = std::make_unique<chrome::WebRtcLoggingAgentImpl>();
+    }
 
-void ContentRendererClientQt::BindReceiverOnMainThread(mojo::GenericPendingReceiver receiver)
-{
-    std::string interface_name = *receiver.interface_name();
-    auto pipe = receiver.PassPipe();
-    m_registry.TryBindInterface(interface_name, &pipe);
+    return m_webrtcLoggingAgentImpl.get();
 }
+#endif // QT_CONFIG(webengine_webrtc) && QT_CONFIG(webengine_extensions)
 
 void ContentRendererClientQt::GetInterface(const std::string &interface_name, mojo::ScopedMessagePipeHandle interface_pipe)
 {

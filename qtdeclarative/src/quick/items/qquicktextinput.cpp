@@ -3494,11 +3494,10 @@ void QQuickTextInputPrivate::processInputMethodEvent(QInputMethodEvent *event)
     m_textLayout.setFormats(formats);
 
     updateDisplayText(/*force*/ true);
-    if ((cursorPositionChanged && !emitCursorPositionChanged())
-            || m_preeditCursor != oldPreeditCursor
-            || isGettingInput) {
+    if (cursorPositionChanged && emitCursorPositionChanged())
+        q->updateInputMethod(Qt::ImCursorPosition | Qt::ImAnchorPosition);
+    else if (m_preeditCursor != oldPreeditCursor || isGettingInput)
         q->updateCursorRectangle();
-    }
 
     if (isGettingInput)
         finishChange(priorState);
@@ -3831,8 +3830,7 @@ void QQuickTextInputPrivate::parseInputMask(const QString &maskFields)
     int delimiter = maskFields.indexOf(QLatin1Char(';'));
     if (maskFields.isEmpty() || delimiter == 0) {
         if (m_maskData) {
-            delete [] m_maskData;
-            m_maskData = nullptr;
+            m_maskData.reset(nullptr);
             m_maxLength = 32767;
             internalSetText(QString());
         }
@@ -3863,8 +3861,7 @@ void QQuickTextInputPrivate::parseInputMask(const QString &maskFields)
             m_maxLength++;
     }
 
-    delete [] m_maskData;
-    m_maskData = new MaskInputData[m_maxLength];
+    m_maskData.reset(new MaskInputData[m_maxLength]);
 
     MaskInputData::Casemode m = MaskInputData::NoCaseMode;
     c = 0;

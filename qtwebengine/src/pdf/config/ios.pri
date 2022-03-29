@@ -17,7 +17,7 @@ enable_message_center=false \
 enable_nacl=false \
 enable_remoting=false \
 enable_reporting=false \
-enable_resource_whitelist_generation=false \
+enable_resource_allowlist_generation=false \
 enable_swiftshader=false \
 enable_web_speech=false \
 has_native_accessibility=false \
@@ -37,6 +37,7 @@ clang_base_path=\"$${clang_dir}\" \
 ios_enable_code_signing=false \
 target_os=\"ios\" \
 ios_deployment_target=\"$${QMAKE_IOS_DEPLOYMENT_TARGET}\" \
+mac_sdk_min=\"$${QMAKE_MAC_SDK_VERSION_MAJOR_MINOR}\" \
 enable_ios_bitcode=true \
 use_jumbo_build=false
 

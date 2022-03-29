@@ -180,7 +180,7 @@ static int readsTable(Parse *p, int iDb, Table *pTab){
     assert( pOp!=0 );
     if( pOp->opcode==OP_OpenRead && pOp->p3==iDb ){
       Index *pIndex;
-      int tnum = pOp->p2;
+      Pgno tnum = pOp->p2;
       if( tnum==pTab->tnum ){
         return 1;
       }
@@ -1612,7 +1612,7 @@ void sqlite3GenerateConstraintChecks(
           }
           case OE_Abort:
             sqlite3MayAbort(pParse);
-            /* Fall through */
+            /* no break */ deliberate_fall_through
           case OE_Rollback:
           case OE_Fail: {
             char *zMsg = sqlite3MPrintf(db, "%s.%s", pTab->zName,
@@ -1669,6 +1669,10 @@ void sqlite3GenerateConstraintChecks(
         /* The check constraints do not reference any of the columns being
         ** updated so there is no point it verifying the check constraint */
         continue;
+      }
+      if( bAffinityDone==0 ){
+        sqlite3TableAffinity(v, pTab, regNewData+1);
+        bAffinityDone = 1;
       }
       allOk = sqlite3VdbeMakeLabel(pParse);
       sqlite3VdbeVerifyAbortable(v, onError);
@@ -1836,7 +1840,7 @@ void sqlite3GenerateConstraintChecks(
     switch( onError ){
       default: {
         onError = OE_Abort;
-        /* Fall thru into the next case */
+        /* no break */ deliberate_fall_through
       }
       case OE_Rollback:
       case OE_Abort:
@@ -1897,7 +1901,7 @@ void sqlite3GenerateConstraintChecks(
 #ifndef SQLITE_OMIT_UPSERT
       case OE_Update: {
         sqlite3UpsertDoUpdate(pParse, pUpsert, pTab, 0, iDataCur);
-        /* Fall through */
+        /* no break */ deliberate_fall_through
       }
 #endif
       case OE_Ignore: {
@@ -1940,7 +1944,7 @@ void sqlite3GenerateConstraintChecks(
       sqlite3TableAffinity(v, pTab, regNewData+1);
       bAffinityDone = 1;
     }
-    VdbeNoopComment((v, "uniqueness check for %s", pIdx->zName));
+    VdbeNoopComment((v, "prep index %s", pIdx->zName));
     iThisCur = iIdxCur+ix;
 
 
@@ -2118,7 +2122,7 @@ void sqlite3GenerateConstraintChecks(
 #ifndef SQLITE_OMIT_UPSERT
       case OE_Update: {
         sqlite3UpsertDoUpdate(pParse, pUpsert, pTab, pIdx, iIdxCur+ix);
-        /* Fall through */
+        /* no break */ deliberate_fall_through
       }
 #endif
       case OE_Ignore: {
@@ -2175,12 +2179,14 @@ void sqlite3GenerateConstraintChecks(
             x = *sqlite3VdbeGetOp(v, addrConflictCk);
             if( x.opcode!=OP_IdxRowid ){
               int p2;      /* New P2 value for copied conflict check opcode */
+              const char *zP4;
               if( sqlite3OpcodeProperty[x.opcode]&OPFLG_JUMP ){
                 p2 = lblRecheckOk;
               }else{
                 p2 = x.p2;
               }
-              sqlite3VdbeAddOp4(v, x.opcode, x.p1, p2, x.p3, x.p4.z, x.p4type);
+              zP4 = x.p4type==P4_INT32 ? SQLITE_INT_TO_PTR(x.p4.i) : x.p4.z;
+              sqlite3VdbeAddOp4(v, x.opcode, x.p1, p2, x.p3, zP4, x.p4type);
               sqlite3VdbeChangeP5(v, x.p5);
               VdbeCoverageIf(v, p2!=x.p2);
             }
@@ -2604,7 +2610,7 @@ static int xferOptimization(
     return 0;   /* FROM clause does not contain a real table */
   }
   if( pSrc->tnum==pDest->tnum && pSrc->pSchema==pDest->pSchema ){
-    testcase( pSrc!=pDest ); /* Possible due to bad sqlite_master.rootpage */
+    testcase( pSrc!=pDest ); /* Possible due to bad sqlite_schema.rootpage */
     return 0;   /* tab1 and tab2 may not be the same table */
   }
   if( HasRowid(pDest)!=HasRowid(pSrc) ){
@@ -2788,14 +2794,13 @@ static int xferOptimization(
       addr1 = sqlite3VdbeAddOp2(v, OP_Rowid, iSrc, regRowid);
       assert( (pDest->tabFlags & TF_Autoincrement)==0 );
     }
-    sqlite3VdbeAddOp3(v, OP_RowData, iSrc, regData, 1);
     if( db->mDbFlags & DBFLAG_Vacuum ){
       sqlite3VdbeAddOp1(v, OP_SeekEnd, iDest);
-      insFlags = OPFLAG_NCHANGE|OPFLAG_LASTROWID|
-                           OPFLAG_APPEND|OPFLAG_USESEEKRESULT;
+      insFlags = OPFLAG_APPEND|OPFLAG_USESEEKRESULT;
     }else{
       insFlags = OPFLAG_NCHANGE|OPFLAG_LASTROWID|OPFLAG_APPEND;
     }
+    sqlite3VdbeAddOp3(v, OP_RowData, iSrc, regData, 1);
     sqlite3VdbeAddOp4(v, OP_Insert, iDest, regData, regRowid,
                       (char*)pDest, P4_TABLE);
     sqlite3VdbeChangeP5(v, insFlags);
@@ -2820,7 +2825,6 @@ static int xferOptimization(
     sqlite3VdbeChangeP5(v, OPFLAG_BULKCSR);
     VdbeComment((v, "%s", pDestIdx->zName));
     addr1 = sqlite3VdbeAddOp2(v, OP_Rewind, iSrc, 0); VdbeCoverage(v);
-    sqlite3VdbeAddOp3(v, OP_RowData, iSrc, regData, 1);
     if( db->mDbFlags & DBFLAG_Vacuum ){
       /* This INSERT command is part of a VACUUM operation, which guarantees
       ** that the destination table is empty. If all indexed columns use
@@ -2844,10 +2848,10 @@ static int xferOptimization(
         idxInsFlags = OPFLAG_USESEEKRESULT;
         sqlite3VdbeAddOp1(v, OP_SeekEnd, iDest);
       }
-    }
-    if( !HasRowid(pSrc) && pDestIdx->idxType==SQLITE_IDXTYPE_PRIMARYKEY ){
+    }else if( !HasRowid(pSrc) && pDestIdx->idxType==SQLITE_IDXTYPE_PRIMARYKEY ){
       idxInsFlags |= OPFLAG_NCHANGE;
     }
+    sqlite3VdbeAddOp3(v, OP_RowData, iSrc, regData, 1);
     sqlite3VdbeAddOp2(v, OP_IdxInsert, iDest, regData);
     sqlite3VdbeChangeP5(v, idxInsFlags|OPFLAG_APPEND);
     sqlite3VdbeAddOp2(v, OP_Next, iSrc, addr1+1); VdbeCoverage(v);

@@ -82,8 +82,7 @@ void TraverseStructArrayVariable(const ShaderVariable &variable,
     // Nested arrays are processed starting from outermost (arrayNestingIndex 0u) and ending at the
     // innermost. We make a special case for unsized arrays.
     const unsigned int currentArraySize = variable.getNestedArraySize(0);
-    unsigned int count                  = std::max(currentArraySize, 1u);
-    for (unsigned int arrayElement = 0u; arrayElement < count; ++arrayElement)
+    for (unsigned int arrayElement = 0u; arrayElement < currentArraySize; ++arrayElement)
     {
         visitor->enterArrayElement(variable, arrayElement);
         ShaderVariable elementVar = variable;
@@ -126,9 +125,9 @@ void TraverseArrayOfArraysVariable(const ShaderVariable &variable,
         }
         else
         {
-            if (gl::IsSamplerType(variable.type))
+            if (gl::IsSamplerType(variable.type) || gl::IsImageType(variable.type))
             {
-                visitor->visitSampler(elementVar);
+                visitor->visitSamplerOrImage(elementVar);
             }
             else
             {
@@ -456,24 +455,24 @@ std::string VariableNameVisitor::collapseMappedNameStack() const
     return CollapseNameStack(mMappedNameStack);
 }
 
-void VariableNameVisitor::visitSampler(const sh::ShaderVariable &sampler)
+void VariableNameVisitor::visitSamplerOrImage(const sh::ShaderVariable &variable)
 {
-    if (!sampler.hasParentArrayIndex())
+    if (!variable.hasParentArrayIndex())
     {
-        mNameStack.push_back(sampler.name);
-        mMappedNameStack.push_back(sampler.mappedName);
+        mNameStack.push_back(variable.name);
+        mMappedNameStack.push_back(variable.mappedName);
     }
 
     std::string name       = collapseNameStack();
     std::string mappedName = collapseMappedNameStack();
 
-    if (!sampler.hasParentArrayIndex())
+    if (!variable.hasParentArrayIndex())
     {
         mNameStack.pop_back();
         mMappedNameStack.pop_back();
     }
 
-    visitNamedSampler(sampler, name, mappedName, mArraySizeStack);
+    visitNamedSamplerOrImage(variable, name, mappedName, mArraySizeStack);
 }
 
 void VariableNameVisitor::visitVariable(const ShaderVariable &variable, bool isRowMajor)
@@ -611,9 +610,9 @@ void TraverseShaderVariable(const ShaderVariable &variable,
     {
         TraverseArrayOfArraysVariable(variable, 0u, isRowMajor, visitor);
     }
-    else if (gl::IsSamplerType(variable.type))
+    else if (gl::IsSamplerType(variable.type) || gl::IsImageType(variable.type))
     {
-        visitor->visitSampler(variable);
+        visitor->visitSamplerOrImage(variable);
     }
     else
     {

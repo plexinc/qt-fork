@@ -99,7 +99,6 @@ ProfileAdapter::ProfileAdapter(const QString &storageName):
     WebEngineContext::current()->addProfileAdapter(this);
     // creation of profile requires webengine context
     m_profile.reset(new ProfileQt(this));
-    content::BrowserContext::Initialize(m_profile.data(), toFilePath(dataPath()));
     // fixme: this should not be here
     m_profile->m_profileIOData->initializeOnUIThread();
     m_customUrlSchemeHandlers.insert(QByteArrayLiteral("qrc"), &m_qrcHandler);
@@ -122,6 +121,7 @@ ProfileAdapter::ProfileAdapter(const QString &storageName):
 
 ProfileAdapter::~ProfileAdapter()
 {
+    content::BrowserContext::NotifyWillBeDestroyed(m_profile.data());
     while (!m_webContentsAdapterClients.isEmpty()) {
        m_webContentsAdapterClients.first()->releaseProfile();
     }
@@ -132,7 +132,9 @@ ProfileAdapter::~ProfileAdapter()
     }
 #if QT_CONFIG(ssl)
     delete m_clientCertificateStore;
+    m_clientCertificateStore = nullptr;
 #endif
+    WebEngineContext::flushMessages();
 }
 
 void ProfileAdapter::setStorageName(const QString &storageName)

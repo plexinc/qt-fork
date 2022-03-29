@@ -44,36 +44,16 @@
 
 #include "net/system_network_context_manager.h"
 
-#include <set>
-#include <unordered_map>
-#include <utility>
-
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/feature_list.h"
-#include "base/logging.h"
-#include "base/sequence_checker.h"
-#include "base/strings/string_split.h"
-#include "base/task/post_task.h"
-#include "base/values.h"
-#include "build/build_config.h"
 #include "chrome/browser/net/chrome_mojo_proxy_resolver_factory.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/certificate_transparency/ct_known_logs.h"
-#include "components/network_session_configurator/common/network_features.h"
 #include "components/network_session_configurator/common/network_switches.h"
-#include "content/public/browser/browser_task_traits.h"
-#include "content/public/browser/browser_thread.h"
-#include "content/public/browser/cors_exempt_headers.h"
 #include "content/public/browser/network_service_instance.h"
-#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/service_names.mojom.h"
-#include "content/public/common/user_agent.h"
-#include "mojo/public/cpp/bindings/associated_interface_ptr.h"
-#include "net/dns/public/util.h"
 #include "net/net_buildflags.h"
-#include "net/third_party/uri_template/uri_template.h"
 #include "services/network/network_service.h"
 #include "services/network/public/cpp/cross_thread_pending_shared_url_loader_factory.h"
 #include "services/network/public/cpp/features.h"
@@ -81,7 +61,6 @@
 #include "services/network/public/mojom/host_resolver.mojom.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "services/proxy_resolver/public/mojom/proxy_resolver.mojom.h"
-#include "url/gurl.h"
 
 namespace {
 
@@ -102,7 +81,7 @@ network::mojom::HttpAuthDynamicParamsPtr CreateHttpAuthDynamicParams()
     network::mojom::HttpAuthDynamicParamsPtr auth_dynamic_params = network::mojom::HttpAuthDynamicParams::New();
 
     auto *command_line = base::CommandLine::ForCurrentProcess();
-    auth_dynamic_params->server_allowlist = command_line->GetSwitchValueASCII(switches::kAuthServerWhitelist);
+    auth_dynamic_params->server_allowlist = command_line->GetSwitchValueASCII(switches::kAuthServerAllowlist);
 //    auth_dynamic_params->delegate_allowlist = command_line->GetSwitchValueASCII(switches::kAuthNegotiateDelegateWhitelist);
 //    auth_dynamic_params->enable_negotiate_port = command_line->HasSwitch(switches::kEnableAuthNegotiatePort);
 
@@ -241,8 +220,7 @@ void SystemNetworkContextManager::OnNetworkServiceCreated(network::mojom::Networ
     network_service->SetUpHttpAuth(CreateHttpAuthStaticParams());
     network_service->ConfigureHttpAuthPrefs(CreateHttpAuthDynamicParams());
 
-    // The system NetworkContext must be created first, since it sets
-    // |primary_network_context| to true.
+    // The system NetworkContext is created first
     network_service_network_context_.reset();
     network_service->CreateNetworkContext(
         network_service_network_context_.BindNewPipeAndPassReceiver(),
@@ -263,41 +241,21 @@ void SystemNetworkContextManager::AddSSLConfigToNetworkContextParams(network::mo
     network_context_params->initial_ssl_config->symantec_enforcement_disabled = true;
 }
 
-network::mojom::NetworkContextParamsPtr SystemNetworkContextManager::CreateDefaultNetworkContextParams()
+void SystemNetworkContextManager::ConfigureDefaultNetworkContextParams(network::mojom::NetworkContextParams *network_context_params)
 {
-    network::mojom::NetworkContextParamsPtr network_context_params = network::mojom::NetworkContextParams::New();
-    content::UpdateCorsExemptHeader(network_context_params.get());
-
     network_context_params->enable_brotli = true;
-
-    //    network_context_params->user_agent = GetUserAgent();
 
     // Disable referrers by default. Any consumer that enables referrers should
     // respect prefs::kEnableReferrers from the appropriate pref store.
     network_context_params->enable_referrers = false;
 
-    //  const base::CommandLine& command_line =
-    //      *base::CommandLine::ForCurrentProcess();
-
-    //  // TODO(eroman): Figure out why this doesn't work in single-process mode,
-    //  // or if it does work, now.
-    //  // Should be possible now that a private isolate is used.
-    //  // http://crbug.com/474654
-    //  if (!command_line.HasSwitch(switches::kWinHttpProxyResolver)) {
-    //    if (command_line.HasSwitch(switches::kSingleProcess)) {
-    //      LOG(ERROR) << "Cannot use V8 Proxy resolver in single process mode.";
-    //    } else {
     network_context_params->proxy_resolver_factory = ChromeMojoProxyResolverFactory::CreateWithSelfOwnedReceiver();
-    //    }
-    //  }
-
-    //    network_context_params->pac_quick_check_enabled = local_state_->GetBoolean(prefs::kQuickCheckEnabled);
 
     // Use the SystemNetworkContextManager to populate and update SSL
     // configuration. The SystemNetworkContextManager is owned by the
     // BrowserProcess itself, so will only be destroyed on shutdown, at which
     // point, all NetworkContexts will be destroyed as well.
-    AddSSLConfigToNetworkContextParams(network_context_params.get());
+    AddSSLConfigToNetworkContextParams(network_context_params);
 
     // CT is only enabled on Desktop platforms for now.
     network_context_params->enforce_chrome_ct_policy = true;
@@ -308,14 +266,13 @@ network::mojom::NetworkContextParamsPtr SystemNetworkContextManager::CreateDefau
         log_info->name = ct_log.log_name;
         network_context_params->ct_logs.push_back(std::move(log_info));
     }
-
-    return network_context_params;
 }
 
 network::mojom::NetworkContextParamsPtr SystemNetworkContextManager::CreateNetworkContextParams()
 {
     // TODO(mmenke): Set up parameters here (in memory cookie store, etc).
-    network::mojom::NetworkContextParamsPtr network_context_params = CreateDefaultNetworkContextParams();
+    network::mojom::NetworkContextParamsPtr network_context_params = network::mojom::NetworkContextParams::New();
+    ConfigureDefaultNetworkContextParams(network_context_params.get());
 
     network_context_params->context_name = std::string("system");
 
@@ -327,8 +284,6 @@ network::mojom::NetworkContextParamsPtr SystemNetworkContextManager::CreateNetwo
 #if !BUILDFLAG(DISABLE_FTP_SUPPORT)
     network_context_params->enable_ftp_url_support = true;
 #endif
-
-    network_context_params->primary_network_context = false;
 
     proxy_config_monitor_.AddToNetworkContextParams(network_context_params.get());
 

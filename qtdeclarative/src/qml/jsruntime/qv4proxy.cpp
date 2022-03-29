@@ -265,9 +265,9 @@ PropertyAttributes ProxyObject::virtualGetOwnProperty(const Managed *m, Property
     ScopedProperty targetDesc(scope);
     PropertyAttributes targetAttributes = target->getOwnProperty(id, targetDesc);
     if (trapResult->isUndefined()) {
-        p->value = Encode::undefined();
-        if (targetAttributes == Attr_Invalid) {
+        if (p)
             p->value = Encode::undefined();
+        if (targetAttributes == Attr_Invalid) {
             return Attr_Invalid;
         }
         if (!targetAttributes.isConfigurable() || !target->isExtensible()) {
@@ -295,8 +295,10 @@ PropertyAttributes ProxyObject::virtualGetOwnProperty(const Managed *m, Property
         }
     }
 
-    p->value = resultDesc->value;
-    p->set = resultDesc->set;
+    if (p) {
+        p->value = resultDesc->value;
+        p->set = resultDesc->set;
+    }
     return resultAttributes;
 }
 
@@ -622,8 +624,10 @@ OwnPropertyKeyIterator *ProxyObject::virtualOwnPropertyKeys(const Object *m, Val
         else
             targetNonConfigurableKeys->push_back(keyAsValue);
     }
-    if (target->isExtensible() && targetNonConfigurableKeys->getLength() == 0)
+    if (target->isExtensible() && targetNonConfigurableKeys->getLength() == 0) {
+        *iteratorTarget = *m;
         return new ProxyObjectOwnPropertyKeyIterator(trapKeys);
+    }
 
     ScopedArrayObject uncheckedResultKeys(scope, scope.engine->newArrayObject());
     uncheckedResultKeys->copyArrayData(trapKeys);
@@ -637,8 +641,10 @@ OwnPropertyKeyIterator *ProxyObject::virtualOwnPropertyKeys(const Object *m, Val
         }
     }
 
-    if (target->isExtensible())
+    if (target->isExtensible()) {
+        *iteratorTarget = *m;
         return new ProxyObjectOwnPropertyKeyIterator(trapKeys);
+    }
 
     len = targetConfigurableKeys->getLength();
     for (uint i = 0; i < len; ++i) {

@@ -240,7 +240,7 @@ static int fromOffsetString(QStringView offsetString, bool *valid) noexcept
     const QStringView hhRef = time.left(qMin(hhLen, time.size()));
     bool ok = false;
     const int hour = C.toInt(hhRef, &ok);
-    if (!ok)
+    if (!ok || hour > 23) // More generous than QTimeZone::MaxUtcOffsetSecs
         return 0;
 
     const QStringView mmRef = time.mid(qMin(mmIndex, time.size()));
@@ -2612,6 +2612,8 @@ bool QTime::isValid(int h, int m, int s, int ms)
 
 #if QT_DEPRECATED_SINCE(5, 14) // ### Qt 6: remove
 /*!
+    \deprecated
+
     Sets this time to the current time. This is practical for timing:
 
     \snippet code/src_corelib_tools_qdatetime.cpp 10
@@ -2655,6 +2657,8 @@ int QTime::restart()
 }
 
 /*!
+    \deprecated
+
     Returns the number of milliseconds that have elapsed since the
     last time start() or restart() was called.
 
@@ -5502,7 +5506,13 @@ QT_WARNING_POP
 
     \snippet code/src_corelib_tools_qdatetime.cpp 12
 
-    If the format is not satisfied, an invalid QDateTime is returned.
+    If the format is not satisfied, an invalid QDateTime is returned.  If the
+    format is satisfied but \a string represents an invalid date-time (e.g. in a
+    gap skipped by a time-zone transition), an invalid QDateTime is returned,
+    whose toMSecsSinceEpoch() represents a near-by date-time that is
+    valid. Passing that to fromMSecsSinceEpoch() will produce a valid date-time
+    that isn't faithfully represented by the string parsed.
+
     The expressions that don't have leading zeroes (d, M, h, m, s, z) will be
     greedy. This means that they will use two digits even if this will
     put them outside the range and/or leave too few digits for other
@@ -5557,7 +5567,7 @@ QDateTime QDateTime::fromString(const QString &string, const QString &format, QC
 
     QDateTimeParser dt(QMetaType::QDateTime, QDateTimeParser::FromString, cal);
     // dt.setDefaultLocale(QLocale::c()); ### Qt 6
-    if (dt.parseFormat(format) && dt.fromString(string, &datetime))
+    if (dt.parseFormat(format) && (dt.fromString(string, &datetime) || !datetime.isValid()))
         return datetime;
 #else
     Q_UNUSED(string);
@@ -5567,7 +5577,7 @@ QDateTime QDateTime::fromString(const QString &string, const QString &format, QC
     return QDateTime();
 }
 
-/*
+/*!
   \overload
 */
 

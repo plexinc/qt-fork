@@ -282,7 +282,8 @@ void QWebEnginePagePrivate::loadStarted(const QUrl &provisionalUrl, bool isError
     QTimer::singleShot(0, q, &QWebEnginePage::loadStarted);
 }
 
-void QWebEnginePagePrivate::loadFinished(bool success, const QUrl &url, bool isErrorPage, int errorCode, const QString &errorDescription)
+void QWebEnginePagePrivate::loadFinished(bool success, const QUrl &url, bool isErrorPage, int errorCode,
+                                         const QString &errorDescription, bool triggersErrorPage)
 {
     Q_Q(QWebEnginePage);
     Q_UNUSED(url);
@@ -290,7 +291,6 @@ void QWebEnginePagePrivate::loadFinished(bool success, const QUrl &url, bool isE
     Q_UNUSED(errorDescription);
 
     if (isErrorPage) {
-        Q_ASSERT(settings->testAttribute(QWebEngineSettings::ErrorPageEnabled));
         QTimer::singleShot(0, q, [q](){
             emit q->loadFinished(false);
         });
@@ -298,9 +298,8 @@ void QWebEnginePagePrivate::loadFinished(bool success, const QUrl &url, bool isE
     }
 
     isLoading = false;
-    // Delay notifying failure until the error-page is done loading.
-    // Error-pages are not loaded on failures due to abort.
-    if (success || errorCode == -3 /* ERR_ABORTED*/ || !settings->testAttribute(QWebEngineSettings::ErrorPageEnabled)) {
+    Q_ASSERT((success && !triggersErrorPage) || !success);
+    if (!triggersErrorPage) {
         QTimer::singleShot(0, q, [q, success](){
             emit q->loadFinished(success);
         });
@@ -337,8 +336,13 @@ QWebEnginePagePrivate::adoptNewWindow(QSharedPointer<WebContentsAdapter> newWebC
     Q_UNUSED(targetUrl);
 
     QWebEnginePage *newPage = q->createWindow(toWindowType(disposition));
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     if (!newPage)
         return nullptr;
+#else
+    if (!newPage)
+        return adapter;
+#endif
 
     if (!newWebContents->webContents())
         return newPage->d_func()->adapter; // Reuse existing adapter
@@ -2214,7 +2218,7 @@ QWebEnginePage *QWebEnginePage::createWindow(WebWindowType type)
         if (newView)
             return newView->page();
     }
-    return 0;
+    return nullptr;
 }
 
 /*!

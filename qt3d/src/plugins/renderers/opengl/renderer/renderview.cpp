@@ -839,6 +839,10 @@ void RenderView::updateRenderCommand(const EntityRenderCommandDataSubView &subVi
             // view vector. This gives a depth value suitable as the key
             // for BackToFront sorting.
             command.m_depth = Vector3D::dotProduct(entity->worldBoundingVolume()->center() - m_eyePos, m_eyeViewDir);
+
+            auto geometryRenderer = m_manager->geometryRendererManager()->data(command.m_geometryRenderer);
+            if (geometryRenderer && !qFuzzyCompare(geometryRenderer->sortIndex(), -1.f))
+                command.m_depth = geometryRenderer->sortIndex();
         } else { // Compute
             // Note: if frameCount has reached 0 in the previous frame, isEnabled
             // would be false
@@ -1076,6 +1080,7 @@ void RenderView::setShaderAndUniforms(RenderCommand *command,
         command->m_parameterPack.reserve(shader->parameterPackSize());
     }
 
+    const size_t previousUniformCount = command->m_parameterPack.uniforms().size();
     if (shader->hasActiveVariables()) {
         const QVector<int> &standardUniformNamesIds = shader->standardUniformNameIds();
 
@@ -1100,8 +1105,9 @@ void RenderView::setShaderAndUniforms(RenderCommand *command,
         updateLightUniforms(command, entity);
     }
 
+    const size_t actualUniformCount = command->m_parameterPack.uniforms().size();
     // Prepare the ShaderParameterPack based on the active uniforms of the shader
-    if (!updateUniformsOnly)
+    if (!updateUniformsOnly || previousUniformCount != actualUniformCount)
         shader->prepareUniforms(command->m_parameterPack);
 }
 

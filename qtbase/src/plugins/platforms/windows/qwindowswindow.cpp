@@ -3014,7 +3014,7 @@ void *QWindowsWindow::surface(void *nativeConfig, int *err)
 #ifndef QT_NO_OPENGL
     if (!m_surface) {
         if (QWindowsStaticOpenGLContext *staticOpenGLContext = QWindowsIntegration::staticOpenGLContext())
-            m_surface = staticOpenGLContext->createWindowSurface(m_data.hwnd, nativeConfig, this->format(), err);
+            m_surface = staticOpenGLContext->createWindowSurface(m_data.hwnd, nativeConfig, err);
     }
 
     return m_surface;

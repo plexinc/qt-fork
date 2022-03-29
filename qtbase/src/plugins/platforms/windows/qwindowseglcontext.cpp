@@ -296,25 +296,11 @@ QWindowsOpenGLContext *QWindowsEGLStaticContext::createContext(QOpenGLContext *c
     return new QWindowsEGLContext(this, context->format(), context->shareHandle());
 }
 
-void *QWindowsEGLStaticContext::createWindowSurface(void *nativeWindow, void *nativeConfig, const QSurfaceFormat format, int *err)
+void *QWindowsEGLStaticContext::createWindowSurface(void *nativeWindow, void *nativeConfig, int *err)
 {
     *err = 0;
-
-    std::vector<EGLint> attrib_list;
-#ifdef EGL_ANGLE_surface_orientation
-    if (format.testOption(QSurfaceFormat::UseOptimalOrientation)) {
-        EGLint surfaceOrientation = 0;
-        libEGL.eglGetConfigAttrib(m_display, nativeConfig, EGL_OPTIMAL_SURFACE_ORIENTATION_ANGLE, &surfaceOrientation);
-        if (surfaceOrientation & EGL_SURFACE_ORIENTATION_INVERT_Y_ANGLE) {
-            attrib_list.push_back(EGL_SURFACE_ORIENTATION_ANGLE);
-            attrib_list.push_back(EGL_SURFACE_ORIENTATION_INVERT_Y_ANGLE);
-        }
-    }
-#endif
-    attrib_list.push_back(EGL_NONE);
     EGLSurface surface = libEGL.eglCreateWindowSurface(m_display, nativeConfig,
-                                                       static_cast<EGLNativeWindowType>(nativeWindow),
-                                                       &attrib_list[0]);
+                                                       static_cast<EGLNativeWindowType>(nativeWindow), nullptr);
     if (surface == EGL_NO_SURFACE) {
         *err = libEGL.eglGetError();
         qWarning("%s: Could not create the EGL window surface: 0x%x", __FUNCTION__, *err);
@@ -362,14 +348,6 @@ QSurfaceFormat QWindowsEGLStaticContext::formatFromConfig(EGLDisplay display, EG
     format.setSamples(sampleCount);
     format.setStereo(false);
     format.setSwapInterval(referenceFormat.swapInterval());
-
-#ifdef EGL_ANGLE_surface_orientation
-    if (referenceFormat.testOption(QSurfaceFormat::UseOptimalOrientation)) {
-        EGLint surfaceOrientation = 0;
-        libEGL.eglGetConfigAttrib(display, config, EGL_OPTIMAL_SURFACE_ORIENTATION_ANGLE, &surfaceOrientation);
-        format.setOrientationFlags((surfaceOrientation & EGL_SURFACE_ORIENTATION_INVERT_Y_ANGLE) ? QSurfaceFormat::MirrorVertically : QSurfaceFormat::OrientationFlags());
-    }
-#endif
 
     // Clear the EGL error state because some of the above may
     // have errored out because the attribute is not applicable
@@ -469,7 +447,7 @@ QWindowsEGLContext::QWindowsEGLContext(QWindowsEGLStaticContext *staticContext,
             }
         }
         m_format.setProfile(QSurfaceFormat::NoProfile);
-        m_format.setOptions(m_format.options() & QSurfaceFormat::UseOptimalOrientation);
+        m_format.setOptions(QSurfaceFormat::FormatOptions());
         QWindowsEGLStaticContext::libEGL.eglMakeCurrent(prevDisplay, prevSurfaceDraw, prevSurfaceRead, prevContext);
     }
     QWindowsEGLStaticContext::libEGL.eglDestroySurface(m_eglDisplay, pbuffer);

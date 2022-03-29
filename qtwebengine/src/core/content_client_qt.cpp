@@ -48,13 +48,15 @@
 #include "base/version.h"
 #include "content/public/common/cdm_info.h"
 #include "content/public/common/content_constants.h"
+#include "extensions/buildflags/buildflags.h"
+#include "extensions/common/constants.h"
 #include "media/base/media_switches.h"
 #include "media/base/video_codecs.h"
 #include "media/media_buildflags.h"
 #include "ui/base/layout.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
-#include "services/service_manager/embedder/switches.h"
+#include "services/service_manager/switches.h"
 #include "type_conversion.h"
 
 #include <QCoreApplication>
@@ -71,7 +73,7 @@
 
 // File name of the CDM on different platforms.
 const char kWidevineCdmFileName[] =
-#if defined(OS_MACOSX)
+#if defined(OS_MAC)
     "widevinecdm.plugin";
 #elif defined(OS_WIN)
     "widevinecdm.dll";
@@ -422,8 +424,7 @@ void ContentClientQt::AddContentDecryptionModules(std::vector<content::CdmInfo> 
             content::CdmCapability capability(
                 {}, {media::EncryptionScheme::kCenc, media::EncryptionScheme::kCbcs},
                 {media::CdmSessionType::kTemporary,
-                 media::CdmSessionType::kPersistentLicense},
-                {});
+                 media::CdmSessionType::kPersistentLicense});
 
             // Register kExternalClearKeyDifferentGuidTestKeySystem first separately.
             // Otherwise, it'll be treated as a sub-key-system of normal
@@ -446,7 +447,15 @@ void ContentClientQt::AddContentDecryptionModules(std::vector<content::CdmInfo> 
 
 void ContentClientQt::AddAdditionalSchemes(Schemes* schemes)
 {
-    schemes->standard_schemes.push_back("chrome-extension");
+    // Matching ChromeContentClient::AddAdditionalSchemes
+    schemes->standard_schemes.push_back(extensions::kExtensionScheme);
+    schemes->secure_schemes.push_back(extensions::kExtensionScheme);
+
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+    schemes->service_worker_schemes.push_back(extensions::kExtensionScheme);
+    schemes->cors_enabled_schemes.push_back(extensions::kExtensionScheme);
+    schemes->csp_bypassing_schemes.push_back(extensions::kExtensionScheme);
+#endif
 }
 
 base::StringPiece ContentClientQt::GetDataResource(int resource_id, ui::ScaleFactor scale_factor)

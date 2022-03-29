@@ -485,9 +485,31 @@ private:
 
 class DynamicStateMachinePrivate : public QScxmlStateMachinePrivate
 {
+    struct DynamicMetaObject : public QAbstractDynamicMetaObject
+    {
+        QAbstractDynamicMetaObject *toDynamicMetaObject(QObject *) override
+        {
+            return this;
+        }
+
+        int metaCall(QObject *o, QMetaObject::Call c, int id, void **a) override
+        {
+            return o->qt_metacall(c, id, a);
+        }
+    };
+
 public:
     DynamicStateMachinePrivate() :
-        QScxmlStateMachinePrivate(&QScxmlStateMachine::staticMetaObject) {}
+        QScxmlStateMachinePrivate(&QScxmlStateMachine::staticMetaObject)
+    {
+        metaObject = new DynamicMetaObject;
+    }
+
+    void setDynamicMetaObject(const QMetaObject *m) {
+        // Prevent the QML engine from creating a property cache for this thing.
+        static_cast<DynamicMetaObject *>(metaObject)->d = m->d;
+        m_metaObject = m;
+    }
 };
 
 class DynamicStateMachine: public QScxmlStateMachine, public QScxmlInternal::GeneratedTableData
@@ -544,7 +566,7 @@ private:
         b.setClassName("DynamicStateMachine");
         b.setSuperClass(&QScxmlStateMachine::staticMetaObject);
         b.setStaticMetacallFunction(qt_static_metacall);
-        d->m_metaObject = b.toMetaObject();
+        d->setDynamicMetaObject(b.toMetaObject());
     }
 
     void initDynamicParts(const MetaDataInfo &info)
@@ -553,7 +575,7 @@ private:
         // Release the temporary QMetaObject.
         Q_ASSERT(d->m_metaObject != &QScxmlStateMachine::staticMetaObject);
         free(const_cast<QMetaObject *>(d->m_metaObject));
-        d->m_metaObject = &QScxmlStateMachine::staticMetaObject;
+        d->setDynamicMetaObject(&QScxmlStateMachine::staticMetaObject);
 
         // Build the real one.
         QMetaObjectBuilder b;
@@ -579,7 +601,7 @@ private:
         }
 
         // And we're done
-        d->m_metaObject = b.toMetaObject();
+        d->setDynamicMetaObject(b.toMetaObject());
     }
 
 public:
@@ -588,7 +610,7 @@ public:
         Q_D(DynamicStateMachine);
         if (d->m_metaObject != &QScxmlStateMachine::staticMetaObject) {
             free(const_cast<QMetaObject *>(d->m_metaObject));
-            d->m_metaObject = &QScxmlStateMachine::staticMetaObject;
+            d->setDynamicMetaObject(&QScxmlStateMachine::staticMetaObject);
         }
     }
 

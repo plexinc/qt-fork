@@ -63,9 +63,14 @@
 #include <QUrl>
 #include <QPointer>
 
+namespace blink {
+namespace web_pref {
+struct WebPreferences;
+}
+}
+
 namespace content {
 class WebContents;
-struct WebPreferences;
 struct OpenURLParams;
 class SiteInstance;
 }
@@ -90,7 +95,7 @@ class FaviconManager;
 class FindTextHelper;
 class MessagePassingInterface;
 class ProfileQt;
-class RenderViewObserverHostQt;
+class WebEnginePageHost;
 class WebChannelIPCTransportHost;
 class WebEngineContext;
 
@@ -161,7 +166,7 @@ public:
     quint64 runJavaScriptCallbackResult(const QString &javaScript, quint32 worldId);
     quint64 fetchDocumentMarkup();
     quint64 fetchDocumentInnerText();
-    void updateWebPreferences(const content::WebPreferences &webPreferences);
+    void updateWebPreferences(const blink::web_pref::WebPreferences &webPreferences);
     void download(const QUrl &url, const QString &suggestedFileName,
                   const QUrl &referrerUrl = QUrl(),
                   ReferrerPolicy referrerPolicy = ReferrerPolicy::Default);
@@ -261,7 +266,7 @@ private:
     ProfileAdapter *m_profileAdapter;
     std::unique_ptr<content::WebContents> m_webContents;
     std::unique_ptr<WebContentsDelegateQt> m_webContentsDelegate;
-    std::unique_ptr<RenderViewObserverHostQt> m_renderViewObserverHost;
+    std::unique_ptr<WebEnginePageHost> m_pageHost;
 #if QT_CONFIG(webengine_webchannel)
     std::unique_ptr<WebChannelIPCTransportHost> m_webChannelTransport;
     QWebChannel *m_webChannel;

@@ -1,8 +1,8 @@
 [microFocusCoordinates]
 osx
 
-[textSelectionOutOfInputField]
-*
-
 [visibilityState3]
 windows
+
+[horizontalScrollbarTest]
+osx

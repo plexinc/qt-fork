@@ -52,7 +52,8 @@ namespace QtWebEngineCore {
 class RenderWidgetHostViewQtDelegateQuickWindow : public QQuickWindow , public RenderWidgetHostViewQtDelegate {
 
 public:
-    RenderWidgetHostViewQtDelegateQuickWindow(RenderWidgetHostViewQtDelegateQuick *realDelegate);
+    RenderWidgetHostViewQtDelegateQuickWindow(RenderWidgetHostViewQtDelegateQuick *realDelegate,
+                                              QWindow *parent);
     ~RenderWidgetHostViewQtDelegateQuickWindow();
 
     void initAsPopup(const QRect&) override;
@@ -67,9 +68,7 @@ public:
     bool isVisible() const override;
     QWindow* window() const override;
     QSGTexture *createTextureFromImage(const QImage &) override;
-    QSGLayer *createLayer() override;
     QSGImageNode *createImageNode() override;
-    QSGRectangleNode *createRectangleNode() override;
     void update() override;
     void updateCursor(const QCursor &) override;
     void resize(int width, int height) override;

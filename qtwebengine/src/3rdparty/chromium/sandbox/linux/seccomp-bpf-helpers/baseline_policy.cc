@@ -11,8 +11,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "base/check_op.h"
 #include "base/clang_profiling_buildflags.h"
-#include "base/logging.h"
 #include "build/build_config.h"
 #include "sandbox/linux/bpf_dsl/bpf_dsl.h"
 #include "sandbox/linux/seccomp-bpf-helpers/sigsys_handlers.h"
@@ -148,18 +148,21 @@ ResultExpr EvaluateSyscallImpl(int fs_denied_errno,
     return Allow();
 #endif
 
+#if defined(__NR_rseq) && !defined(OS_ANDROID)
+  // See https://crbug.com/1104160. Rseq can only be disabled right before an
+  // execve, because glibc registers it with the kernel and so far it's unclear
+  // whether shared libraries (which, during initialization, may observe that
+  // rseq is already registered) should have to deal with deregistration.
+  if (sysno == __NR_rseq)
+    return Allow();
+#endif
+
   if (sysno == __NR_clock_gettime || sysno == __NR_clock_nanosleep) {
     return RestrictClockID();
   }
 
   if (sysno == __NR_clone) {
     return RestrictCloneToThreadsAndEPERMFork();
-  }
-
-  // clone3 takes a pointer argument which we cannot examine, so return ENOSYS
-  // to force the libc to use clone. See https://crbug.com/1213452.
-  if (sysno == __NR_clone3) {
-    return Error(ENOSYS);
   }
 
   if (sysno == __NR_fcntl)

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2020 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -162,8 +162,7 @@ directly. Browsers often blacklist WebGL for older/unsupported GPUs.
 
 For embedded platform support, including \l{Qt for Embedded Linux}{Embedded Linux},
 \l{Qt for INTEGRITY}{INTEGRITY}, \l{Qt for QNX}{QNX}, and \l{Qt for VxWorks}{VxWorks},
-please consult the \l {http://doc.qt.io/QtForDeviceCreation}{Qt for Device Creation}
-documentation.
+please consult the \l {Qt for Device Creation} documentation.
 
 //! [embedded]
 

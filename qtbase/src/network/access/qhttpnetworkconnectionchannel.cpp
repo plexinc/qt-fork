@@ -1005,7 +1005,6 @@ void QHttpNetworkConnectionChannel::_q_error(QAbstractSocket::SocketError socket
                         && switchedToHttp2)) {
                     auto h2Handler = static_cast<QHttp2ProtocolHandler *>(protocolHandler.data());
                     h2Handler->handleConnectionClosure();
-                    protocolHandler.reset();
                 }
             }
             return;
@@ -1134,9 +1133,12 @@ void QHttpNetworkConnectionChannel::_q_error(QAbstractSocket::SocketError socket
         for (int a = 0; a < spdyPairs.count(); ++a) {
             // emit error for all replies
             QHttpNetworkReply *currentReply = spdyPairs.at(a).second;
+            currentReply->d_func()->errorString = errorString;
+            currentReply->d_func()->httpErrorCode = errorCode;
             Q_ASSERT(currentReply);
             emit currentReply->finishedWithError(errorCode, errorString);
         }
+        spdyRequestsToSend.clear();
     }
 
     // send the next request

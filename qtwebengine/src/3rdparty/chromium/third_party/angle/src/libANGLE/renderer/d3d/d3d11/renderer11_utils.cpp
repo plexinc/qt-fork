@@ -25,12 +25,12 @@
 #include "libANGLE/renderer/d3d/d3d11/Context11.h"
 #include "libANGLE/renderer/d3d/d3d11/RenderTarget11.h"
 #include "libANGLE/renderer/d3d/d3d11/Renderer11.h"
-#include "libANGLE/renderer/d3d/d3d11/dxgi_support_table.h"
 #include "libANGLE/renderer/d3d/d3d11/formatutils11.h"
 #include "libANGLE/renderer/d3d/d3d11/texture_format_table.h"
 #include "libANGLE/renderer/driver_utils.h"
+#include "libANGLE/renderer/dxgi_support_table.h"
 #include "platform/FeaturesD3D.h"
-#include "platform/Platform.h"
+#include "platform/PlatformMethods.h"
 
 namespace rx
 {
@@ -1642,8 +1642,11 @@ void GenerateCaps(ID3D11Device *device,
     extensions->provokingVertex          = true;
     extensions->blendFuncExtended        = true;
     extensions->maxDualSourceDrawBuffers = 1;
-    extensions->texture3DOES             = true;
-    extensions->baseVertexBaseInstance   = true;
+    // http://anglebug.com/4926
+    extensions->texture3DOES              = false;
+    extensions->baseVertexBaseInstance    = true;
+    extensions->drawElementsBaseVertexOES = true;
+    extensions->drawElementsBaseVertexEXT = true;
     if (!strstr(description, "Adreno"))
     {
         extensions->multisampledRenderToTexture = true;
@@ -2140,6 +2143,20 @@ void MakeValidSize(bool isImage,
             upsampleCount++;
         }
     }
+    else
+    {
+        if (*requestWidth % dxgiFormatInfo.blockWidth != 0)
+        {
+            *requestWidth = roundUp(*requestWidth, static_cast<GLsizei>(dxgiFormatInfo.blockWidth));
+        }
+
+        if (*requestHeight % dxgiFormatInfo.blockHeight != 0)
+        {
+            *requestHeight =
+                roundUp(*requestHeight, static_cast<GLsizei>(dxgiFormatInfo.blockHeight));
+        }
+    }
+
     if (levelOffset)
     {
         *levelOffset = upsampleCount;
@@ -2221,6 +2238,7 @@ void SetPositionLayerTexCoord3DVertex(PositionLayerTexCoord3DVertex *vertex,
 BlendStateKey::BlendStateKey()
 {
     memset(this, 0, sizeof(BlendStateKey));
+    blendStateExt = gl::BlendStateExt();
 }
 
 BlendStateKey::BlendStateKey(const BlendStateKey &other)
@@ -2380,11 +2398,7 @@ void InitializeFeatures(const Renderer11DeviceCaps &deviceCaps,
     bool isIvyBridge       = false;
     bool isAMD             = IsAMD(adapterDesc.VendorId);
     bool isFeatureLevel9_3 = (deviceCaps.featureLevel <= D3D_FEATURE_LEVEL_9_3);
-#if defined(ANGLE_ENABLE_WINDOWS_UWP)
-    bool isWin10 = true;
-#else
-    bool isWin10 = IsWindows10OrGreater();
-#endif
+
     IntelDriverVersion capsVersion = IntelDriverVersion(0);
     if (isIntel)
     {
@@ -2463,13 +2477,14 @@ void InitializeFeatures(const Renderer11DeviceCaps &deviceCaps,
     ANGLE_FEATURE_CONDITION(features, selectViewInGeometryShader,
                             !deviceCaps.supportsVpRtIndexWriteFromVertexShader);
 
-    // Intel and AMD drivers have trouble clearing textures without causing corruption. NVidia,
-    // on the other hand, can handle.
-    ANGLE_FEATURE_CONDITION(features, allowClearForRobustResourceInit, isNvidia);
+    // NVidia drivers have no trouble clearing textures without showing corruption.
+    // Intel and AMD drivers that have trouble have been blocklisted by Chromium. In the case of
+    // Intel, they've been blocklisted to the DX9 runtime.
+    ANGLE_FEATURE_CONDITION(features, allowClearForRobustResourceInit, true);
 
-    // Don't translate uniform block to StructuredBuffer on Windows 7 and earlier. This is targeted
-    // to work around a bug that fails to allocate ShaderResourceView for StructuredBuffer.
-    ANGLE_FEATURE_CONDITION(features, dontTranslateUniformBlockToStructuredBuffer, !isWin10);
+    // There is an issue(crbug.com/1112112) when translating uniform block to StructuredBuffer,
+    // so disable this feature temporarily.
+    ANGLE_FEATURE_CONDITION(features, dontTranslateUniformBlockToStructuredBuffer, true);
 
     // Call platform hooks for testing overrides.
     auto *platform = ANGLEPlatformCurrent();

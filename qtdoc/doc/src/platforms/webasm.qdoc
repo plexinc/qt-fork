@@ -88,6 +88,29 @@ After installation, you should have emscripten in your path.  Check this with th
 The binary builds can be downloaded in the Downloads section using your Qt
 account.
 
+\section3 Supported Qt modules
+
+The following modules are supported by Qt for WebAssembly:
+
+\list
+    \li QtBase
+    \li QtDeclarative
+    \li QtQuickcontrols2
+    \li QtWebsockets
+    \li QtSvg
+    \li QtCharts
+    \li QtMqtt
+\endlist
+
+The following modules do not work:
+
+\list
+    \li QtMultimedia
+    \li QtWebView
+\endlist
+
+Other modules may work, but are not supported.
+
 \section3 Build Qt from the sources
 
 Alternatively, you could download the Qt sources in the Downloads section,
@@ -114,7 +137,8 @@ Build required modules:
     make module-qtbase module-qtdeclarative [other modules]
 \endcode
 
-The Qt build is a static build, and does not support threads.
+The Qt build is a static build, and does not support threads by default. Configure with  \c{-feature-thread}
+to enable thread support.
 
 \section3 Build and run your application
 
@@ -173,10 +197,9 @@ You can test-run your application in the following way:
 
 \section1 Limitations
 
-The most important limitation is that the Qt build is static,
-and does not support threads.
+The most important limitation is that the Qt build is static.
 
-For further info, refer to \l { https://wiki.qt.io/Qt_for_WebAssembly#Known_issues_and_platform_notes}{Known_issues_and_platform_notes}.
+For further info, refer to \l{qtwebassembly-platform-notes}
 
 \section1 External resources
 

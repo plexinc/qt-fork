@@ -1,5 +1,5 @@
 QT LICENSE AGREEMENT
-Agreement version 4.2.3
+Agreement version 4.3
 
 This Qt License Agreement ("Agreement") is a legal agreement for the licensing
 of Licensed Software (as defined below) between The Qt Company (as defined
@@ -159,14 +159,8 @@ this Agreement.
 
 "Party" or "Parties" shall mean Licensee and/or The Qt Company.
 
-"Permitted Software" shall mean any (i) open source software (excluding Open
-Source Qt) that is a) generally available for public in source code form
-without additional cost under any of the licenses approved by Open Source
-Initiative as listed on  https://opensource.org/licenses; and (b) is in no
-way, directly or indirectly, developed by or for or otherwise related to or
-in the interest of the Licensee or its Affiliates, or (ii) software The Qt
-Company has made available via its Qt Marketplace online distribution
-channel.
+"Permitted Combination" shall have the meaning as set forth in Section
+3.4(viii).
 
 "Pre-Release Code" shall have the meaning as set forth in Section 4.
 
@@ -308,10 +302,10 @@ that any Designated User may be replaced only once during any six-month period.
 
 Upon expiry of the initially agreed License Term, the respective License Terms
 shall be automatically extended to one or more Renewal Term(s), unless and
-until either Party notifies the other Party in writing that it does not wish
-to continue the License Term, such notification to be provided to the other
-Party no less than thirty (30) days before expiry of the respective License
-Term.
+until either Party notifies the other Party in writing, or any other method
+acceptable to The Qt Company, that it does not wish to continue the License
+Term, such notification to be provided to the other Party no less than thirty
+(30) days before expiry of the respective License Term.
 
 Unless otherwise agreed between the Parties, Renewal Term shall be of equal
 length with the initial License Term.
@@ -323,8 +317,10 @@ pricing applicable at the commencement date of any such Renewal Term.
 Any price or other term specified for a Renewal Term shall be valid only for the
 specified time.
 
-The Qt Company may request the Licensee to place a purchase order corresponding
-to a quote by The Qt Company for the relevant Renewal Term.
+The Qt Company may either request the Licensee to place a purchase order
+corresponding to a quote by The Qt Company, or uses Licensees stored Credit
+Card information in the QtAccount to automatically charge the Licensee for the
+relevant Renewal Term.
 
 In the event Licensee does not prevent auto-renewal pursuant the above, but a
 Renewal Term is nevertheless not duly ordered within 30 days from the date of
@@ -750,11 +746,13 @@ Redistributables under this Agreement.
 
 Notwithstanding the above, in the event the Agreement expires or is terminated:
    (i)   as a result of The Qt Company choosing not to renew the Development
-         License(s) as set forth in Section 3.1, then all valid licenses
-         possessed by the Licensee at such date shall be extended to be valid
-         in perpetuity under the terms of this Agreement and Licensee is
-         entitled to purchase additional licenses as set forth in
-         Section 10.2; or
+         License(s) as set forth in Section 3.1, and where such decision of
+         non-renewal is not due to any ongoing breach or alleged breach (as
+         reasonably determined by The Qt Company) by Licensee of the terms of this
+         Agreement or any applicable license terms of Open Source Qt, then all valid
+         licenses possessed by the Licensee at such date shall be extended to be
+         valid in perpetuity under the terms of this Agreement and Licensee is
+         entitled to purchase additional licenses as set forth in Section 10.2; or
    (ii)  for reason other than by The Qt Company pursuant to item (i) above
          or pursuant to Section 12.2, then the Licensee is entitled, for a
          period of six (6) months after the effective date of termination,
@@ -950,7 +948,8 @@ APPENDIX 1
 The modules and/or tools that are included in the respective product - Qt
 for Application Development (QtAD), Qt for Device Creation (QtDC), Qt for
 MCUs (QtMCU), Qt 3D Studio (Qt3DS) and Qt Design Studio (QtDS) - are
-marked with 'X' in the below table.
+marked with 'X' in the below table. The modules and tools are ported to Qt 6
+in stages and are subject to availability.
 
 Parts of the product that are permitted for distribution in object-code
 form only ("Redistributables") are marked with 'R' in the below table.
@@ -967,6 +966,8 @@ form only ("Redistributables") are marked with 'R' in the below table.
 | Qt Multimedia Widgets            | X, R | X, R |       |       |      |
 +-----------------------------------------------------------------------+
 | Qt Network                       | X, R | X, R |       |       |      |
++-----------------------------------------------------------------------+
+| Qt PDF                           | X, R | X, R |       |       |      |
 +-----------------------------------------------------------------------+
 | Qt QML                           | X, R | X, R |       |       |      |
 +-----------------------------------------------------------------------+
@@ -1066,7 +1067,7 @@ form only ("Redistributables") are marked with 'R' in the below table.
 +-----------------------------------------------------------------------+
 | Qt Charts                        | X, R | X, R |       |       |      |
 +-----------------------------------------------------------------------+
-| Qt Data visualization            | X, R | X, R |       |       |      |
+| Qt Data Visualization            | X, R | X, R |       |       |      |
 +-----------------------------------------------------------------------+
 | Qt Virtual Keyboard              | X, R | X, R |       |       |      |
 +-----------------------------------------------------------------------+
@@ -1086,16 +1087,16 @@ form only ("Redistributables") are marked with 'R' in the below table.
 +-----------------------------------------------------------------------+
 | Qt Designer (Qt Widget Designer) |  X   |  X   |       |       |      |
 +-----------------------------------------------------------------------+
-| Qt Quick Designer (Qt Creator    |  X   |  X   |   X   |       |      |
+| Qt Quick Designer (Qt Creator    | X, R | X, R | X, R  |       |      |
 | plugin)                          |      |      |       |       |      |
 +-----------------------------------------------------------------------+
-| Qt Linguist                      |  X   |  X   |   X   |       |      |
+| Qt Linguist                      | X, R | X, R | X, R  |       |      |
 +-----------------------------------------------------------------------+
-| Qt Assistant                     |  X   |  X   |   X   |       |      |
+| Qt Assistant                     | X, R | X, R | X, R  |       |      |
 +-----------------------------------------------------------------------+
-| Lupdate                          |  X   |  X   |   X   |       |      |
+| Lupdate                          | X, R | X, R | X, R  |       |      |
 +-----------------------------------------------------------------------+
-| Lrelease                         |  X   |  X   |   X   |       |      |
+| Lrelease                         | X, R | X, R | X, R  |       |      |
 +-----------------------------------------------------------------------+
 | Qmake                            |  X   |  X   |       |       |      |
 +-----------------------------------------------------------------------+
@@ -1142,7 +1143,8 @@ The Qt Company, as mentioned in this Appendix, if included in the quote /
 invoice.
 
 The Modules and/or Tools of the Licensed Software that are included with each
-Add-On Product respectively are marked with 'X' in the below table.
+Add-On Product respectively are marked with 'X' in the below table. The modules
+are ported to Qt 6 in stages and are subject to availability.
 
 Parts of the respective Add-On Product that are permitted for distribution in
 object-code form only ("Redistributables") are marked with 'R' in the below
@@ -1311,4 +1313,3 @@ with respect to relevant Sections of the Agreement:
 
 Except for the modifications specified above, this Appendix carries no
 change to the terms of the Agreement which shall remain in full force.
-

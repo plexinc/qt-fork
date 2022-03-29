@@ -43,7 +43,6 @@
 
 #include "base/values.h"
 #include "content/browser/accessibility/accessibility_tree_formatter_blink.h"
-#include "content/browser/accessibility/accessibility_tree_formatter_browser.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/common/font_list.h"
@@ -63,13 +62,16 @@
 
 #if defined(USE_AURA) && !defined(USE_OZONE)
 #include "ui/base/dragdrop/os_exchange_data.h"
-#include "ui/base/dragdrop/os_exchange_data_provider_aura.h"
 #include "ui/gfx/render_text.h"
 #include "ui/gfx/platform_font.h"
 #endif
 
 #if defined(USE_OPENSSL_CERTS)
 #include "net/ssl/openssl_client_key_store.h"
+#endif
+
+#if !QT_CONFIG(webengine_webrtc) && QT_CONFIG(webengine_extensions)
+#include "chrome/browser/extensions/api/webrtc_logging_private/webrtc_logging_private_api.h"
 #endif
 
 void *GetQtXDisplay()
@@ -195,7 +197,81 @@ void GrabViewSnapshotAsync(gfx::NativeView view,
 } // namespace ui
 #endif // defined(USE_AURA)
 
-std::unique_ptr<ui::OSExchangeData::Provider>
-ui::OSExchangeDataProviderFactory::CreateProvider() {
+std::unique_ptr<ui::OSExchangeDataProvider> ui::OSExchangeDataProviderFactory::CreateProvider()
+{
     return nullptr;
 }
+
+#if !QT_CONFIG(webengine_webrtc) && QT_CONFIG(webengine_extensions)
+namespace extensions {
+ExtensionFunction::ResponseAction WebrtcLoggingPrivateSetMetaDataFunction::Run()
+{
+    return RespondNow(NoArguments());
+}
+
+ExtensionFunction::ResponseAction WebrtcLoggingPrivateStartFunction::Run()
+{
+    return RespondNow(NoArguments());
+}
+
+ExtensionFunction::ResponseAction WebrtcLoggingPrivateSetUploadOnRenderCloseFunction::Run()
+{
+    return RespondNow(NoArguments());
+}
+
+ExtensionFunction::ResponseAction WebrtcLoggingPrivateStopFunction::Run()
+{
+    return RespondNow(NoArguments());
+}
+
+ExtensionFunction::ResponseAction WebrtcLoggingPrivateStoreFunction::Run()
+{
+    return RespondNow(NoArguments());
+}
+
+ExtensionFunction::ResponseAction WebrtcLoggingPrivateUploadStoredFunction::Run()
+{
+    return RespondNow(NoArguments());
+}
+
+ExtensionFunction::ResponseAction WebrtcLoggingPrivateUploadFunction::Run()
+{
+    return RespondNow(NoArguments());
+}
+
+ExtensionFunction::ResponseAction WebrtcLoggingPrivateDiscardFunction::Run()
+{
+    return RespondNow(NoArguments());
+}
+
+ExtensionFunction::ResponseAction WebrtcLoggingPrivateStartRtpDumpFunction::Run()
+{
+    return RespondNow(NoArguments());
+}
+
+ExtensionFunction::ResponseAction WebrtcLoggingPrivateStopRtpDumpFunction::Run()
+{
+    return RespondNow(NoArguments());
+}
+
+ExtensionFunction::ResponseAction WebrtcLoggingPrivateStartAudioDebugRecordingsFunction::Run()
+{
+    return RespondNow(NoArguments());
+}
+
+ExtensionFunction::ResponseAction WebrtcLoggingPrivateStopAudioDebugRecordingsFunction::Run()
+{
+    return RespondNow(NoArguments());
+}
+
+ExtensionFunction::ResponseAction WebrtcLoggingPrivateStartEventLoggingFunction::Run()
+{
+    return RespondNow(NoArguments());
+}
+
+ExtensionFunction::ResponseAction WebrtcLoggingPrivateGetLogsDirectoryFunction::Run()
+{
+    return RespondNow(NoArguments());
+}
+} // namespace extensions
+#endif // !QT_CONFIG(webengine_webrtc) && QT_CONFIG(webengine_extensions)

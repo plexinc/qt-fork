@@ -25,7 +25,7 @@
 #include "src/trace_processor/importers/systrace/systrace_line.h"
 #include "src/trace_processor/storage/trace_storage.h"
 #include "src/trace_processor/trace_blob_view.h"
-#include "src/trace_processor/trace_processor_context.h"
+#include "src/trace_processor/types/trace_processor_context.h"
 
 // GCC can't figure out the relationship between TimestampedTracePiece's type
 // and the union, and thus thinks that we may be moving or destroying
@@ -198,19 +198,13 @@ struct TimestampedTracePiece {
     return *this;
   }
 
-#if PERFETTO_BUILDFLAG(PERFETTO_COMPILER_MSVC)
-  TimestampedTracePiece& operator=(TimestampedTracePiece&& ttp) const
-  {
-    if (this != &ttp) {
-      // First invoke the destructor and then invoke the move constructor
-      // inline via placement-new to implement move-assignment.
-      this->~TimestampedTracePiece();
-      new (const_cast<TimestampedTracePiece*>(this)) TimestampedTracePiece(std::move(ttp));
-    }
-
-    return const_cast<TimestampedTracePiece&>(*this);
+  TimestampedTracePiece(const TimestampedTracePiece&) = delete;
+  TimestampedTracePiece& operator=(const TimestampedTracePiece&) = delete;
+#if PERFETTO_BUILDFLAG(PERFETTO_OS_WIN)
+  TimestampedTracePiece& operator=(TimestampedTracePiece&& ttp) const {
+    return (*const_cast<TimestampedTracePiece*>(this) = std::move(ttp));
   }
-#endif  // PERFETTO_BUILDFLAG(PERFETTO_COMPILER_MSVC)
+#endif
 
   ~TimestampedTracePiece() {
     switch (type) {

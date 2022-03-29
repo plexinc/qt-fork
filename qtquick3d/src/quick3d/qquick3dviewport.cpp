@@ -253,9 +253,19 @@ void QQuick3DViewport::setShaderCacheFile(const QUrl &shaderCacheFile)
     m_shaderCacheFile = shaderCacheFile;
 }
 
+void QQuick3DViewport::setShaderCache(const QByteArray &shaderCache)
+{
+    m_shaderCacheIO = shaderCache;
+}
+
 QUrl QQuick3DViewport::shaderCacheFile()
 {
     return m_shaderCacheFile;
+}
+
+QByteArray QQuick3DViewport::shaderCacheData() const
+{
+    return m_shaderCacheIO;
 }
 
 void QQuick3DViewport::readShaderCache()
@@ -272,8 +282,8 @@ void QQuick3DViewport::readShaderCache()
             error.append(" ");
             error.append(file.errorString().toUtf8());
         }
-    } else if (!m_shaderCacheImport.isEmpty()) {
-        m_shaderCacheData = qUncompress(m_shaderCacheImport);
+    } else if (!m_shaderCacheIO.isEmpty()) {
+        m_shaderCacheData = qUncompress(m_shaderCacheIO);
         if (m_shaderCacheData.isEmpty())
             error = QByteArrayLiteral("Failed uncompress shader cache.");
     }
@@ -320,8 +330,12 @@ void QQuick3DViewport::doExportShaderCache()
         if (rci) {
             m_shaderCacheData = rci->shaderCache()->exportShaderCache(m_binaryShaders);
             if (m_shaderCacheData.size()) {
-                m_shaderCacheData = qCompress(m_shaderCacheData, m_compressionLevel);
-                writeShaderCache(m_exportShaderCacheFile);
+                m_shaderCacheIO = qCompress(m_shaderCacheData, m_compressionLevel);
+                if (m_fileExport)
+                    writeShaderCache(m_exportShaderCacheFile);
+                else
+                    Q_EMIT shaderCacheExported(true);
+
             } else {
                 Q_EMIT shaderCacheExported(false);
             }
@@ -349,7 +363,22 @@ void QQuick3DViewport::exportShaderCache(const QUrl &shaderCacheFile, bool binar
         qWarning () << "Export shader cache already requested";
         return;
     }
+    m_fileExport = true;
     m_exportShaderCacheFile = shaderCacheFile;
+    m_binaryShaders = binaryShaders;
+    m_compressionLevel = compressionLevel;
+    m_exportShaderCacheRequested = true;
+}
+
+void QQuick3DViewport::exportShaderCache(bool binaryShaders,
+                                         int compressionLevel)
+{
+    if (m_exportShaderCacheRequested) {
+        qWarning () << "Export shader cache already requested";
+        return;
+    }
+
+    m_fileExport = false;
     m_binaryShaders = binaryShaders;
     m_compressionLevel = compressionLevel;
     m_exportShaderCacheRequested = true;
@@ -429,12 +458,18 @@ QSGNode *QQuick3DViewport::updatePaintNode(QSGNode *node, QQuickItem::UpdatePain
     // When changing render modes
     if (m_renderModeDirty) {
         if (node) {
+            SGFramebufferObjectNode *n = static_cast<SGFramebufferObjectNode *>(node);
+            n->renderer->onRenderModeChanged();
+            n->renderer = nullptr;
+
             delete node;
             node = nullptr;
             m_node = nullptr;
             m_renderNode = nullptr;
         }
         if (m_directRenderer) {
+            m_directRenderer->renderer()->onRenderModeChanged();
+            m_directRenderer->onRenderModeChanged();
             delete m_directRenderer;
             m_directRenderer = nullptr;
         }
@@ -531,7 +566,8 @@ void QQuick3DViewport::setCamera(QQuick3DCamera *camera)
         return;
 
     m_camera = camera;
-    m_camera->updateGlobalVariables(QRect(0, 0, width(), height()));
+    if (m_camera)
+        m_camera->updateGlobalVariables(QRect(0, 0, width(), height()));
     emit cameraChanged();
     update();
 }

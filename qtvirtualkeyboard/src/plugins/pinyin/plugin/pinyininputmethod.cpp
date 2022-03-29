@@ -134,8 +134,8 @@ public:
         if (composingStr.length() > 0) {
             if ((candId >= 0 || finishSelection) && composingStr.length() == fixedLen) {
                 QString resultStr = getComposingStrActivePart();
-                tryPredict();
                 q->inputContext()->commit(resultStr);
+                tryPredict();
             } else if (state == Idle) {
                 state = Input;
             }
@@ -229,12 +229,12 @@ public:
             activeCmpsLen = activeCmpsLen - (surface.length() - surfaceDecodedLen);
             composingStrDisplay = fullSent.mid(0, fixedLen);
             for (int pos = fixedLen + 1; pos < splStart.size() - 1; pos++) {
-                composingStrDisplay += surface.mid(splStart[pos], splStart[pos + 1] - splStart[pos]).toUpper();
+                composingStrDisplay += surface.mid(splStart[pos], splStart[pos + 1] - splStart[pos]);
                 if (splStart[pos + 1] < surfaceDecodedLen)
                     composingStrDisplay += QLatin1String(" ");
             }
             if (surfaceDecodedLen < surface.length())
-                composingStrDisplay += surface.mid(surfaceDecodedLen).toLower();
+                composingStrDisplay += surface.mid(surfaceDecodedLen);
         }
         q->inputContext()->setPreeditText(composingStrDisplay);
 

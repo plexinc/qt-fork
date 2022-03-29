@@ -231,7 +231,7 @@ class Build:
 
   @property
   def jobs(self):
-    return os.getenv("PLEX_JOBS", "6")
+    return os.getenv("PLEX_JOBS", "32")
 
   @property
   def qt_version(self):

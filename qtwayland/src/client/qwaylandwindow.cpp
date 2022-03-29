@@ -194,10 +194,11 @@ void QWaylandWindow::initWindow()
     if (QScreen *s = window()->screen())
         setOrientationMask(s->orientationUpdateMask());
     setWindowFlags(window()->flags());
-    if (window()->geometry().isEmpty())
+    QRect geometry = windowGeometry();
+    if (geometry.isEmpty())
         setGeometry_helper(QRect(QPoint(), QSize(500,500)));
     else
-        setGeometry_helper(window()->geometry());
+        setGeometry_helper(geometry);
     setMask(window()->mask());
     if (mShellSurface)
         mShellSurface->requestWindowStates(window()->windowStates());
@@ -332,9 +333,11 @@ void QWaylandWindow::setWindowIcon(const QIcon &icon)
 
 void QWaylandWindow::setGeometry_helper(const QRect &rect)
 {
+    QSize minimum = windowMinimumSize();
+    QSize maximum = windowMaximumSize();
     QPlatformWindow::setGeometry(QRect(rect.x(), rect.y(),
-                qBound(window()->minimumWidth(), rect.width(), window()->maximumWidth()),
-                qBound(window()->minimumHeight(), rect.height(), window()->maximumHeight())));
+                qBound(minimum.width(), rect.width(), maximum.width()),
+                qBound(minimum.height(), rect.height(), maximum.height())));
 
     if (mSubSurfaceWindow) {
         QMargins m = QPlatformWindow::parent()->frameMargins();
@@ -362,7 +365,7 @@ void QWaylandWindow::setGeometry(const QRect &rect)
     if (isExposed() && !mInResizeFromApplyConfigure && exposeGeometry != mLastExposeGeometry)
         sendExposeEvent(exposeGeometry);
 
-    if (mShellSurface)
+    if (mShellSurface && isExposed())
         mShellSurface->setWindowGeometry(windowContentGeometry());
 
     if (isOpaque() && mMask.isEmpty())
@@ -429,7 +432,7 @@ void QWaylandWindow::setVisible(bool visible)
         initWindow();
         mDisplay->flushRequests();
 
-        setGeometry(window()->geometry());
+        setGeometry(windowGeometry());
         // Don't flush the events here, or else the newly visible window may start drawing, but since
         // there was no frame before it will be stuck at the waitForFrameSync() in
         // QWaylandShmBackingStore::beginPaint().

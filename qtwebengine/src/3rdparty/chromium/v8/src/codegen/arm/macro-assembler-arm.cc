@@ -17,7 +17,7 @@
 #include "src/codegen/register-configuration.h"
 #include "src/debug/debug.h"
 #include "src/execution/frames-inl.h"
-#include "src/heap/heap-inl.h"  // For MemoryChunk.
+#include "src/heap/memory-chunk.h"
 #include "src/init/bootstrapper.h"
 #include "src/logging/counters.h"
 #include "src/numbers/double.h"
@@ -57,7 +57,7 @@ int TurboAssembler::RequiredStackSizeForCallerSaved(SaveFPRegsMode fp_mode,
   bytes += NumRegs(list) * kPointerSize;
 
   if (fp_mode == kSaveFPRegs) {
-    bytes += DwVfpRegister::NumRegisters() * DwVfpRegister::kSizeInBytes;
+    bytes += DwVfpRegister::kNumRegisters * DwVfpRegister::kSizeInBytes;
   }
 
   return bytes;
@@ -84,7 +84,7 @@ int TurboAssembler::PushCallerSaved(SaveFPRegsMode fp_mode, Register exclusion1,
 
   if (fp_mode == kSaveFPRegs) {
     SaveFPRegs(sp, lr);
-    bytes += DwVfpRegister::NumRegisters() * DwVfpRegister::kSizeInBytes;
+    bytes += DwVfpRegister::kNumRegisters * DwVfpRegister::kSizeInBytes;
   }
 
   return bytes;
@@ -95,7 +95,7 @@ int TurboAssembler::PopCallerSaved(SaveFPRegsMode fp_mode, Register exclusion1,
   int bytes = 0;
   if (fp_mode == kSaveFPRegs) {
     RestoreFPRegs(sp, lr);
-    bytes += DwVfpRegister::NumRegisters() * DwVfpRegister::kSizeInBytes;
+    bytes += DwVfpRegister::kNumRegisters * DwVfpRegister::kSizeInBytes;
   }
 
   RegList exclusions = 0;
@@ -425,6 +425,35 @@ void TurboAssembler::Push(Smi smi) {
   Register scratch = temps.Acquire();
   mov(scratch, Operand(smi));
   push(scratch);
+}
+
+void TurboAssembler::PushArray(Register array, Register size, Register scratch,
+                               PushArrayOrder order) {
+  UseScratchRegisterScope temps(this);
+  Register counter = scratch;
+  Register tmp = temps.Acquire();
+  DCHECK(!AreAliased(array, size, counter, tmp));
+  Label loop, entry;
+  if (order == PushArrayOrder::kReverse) {
+    mov(counter, Operand(0));
+    b(&entry);
+    bind(&loop);
+    ldr(tmp, MemOperand(array, counter, LSL, kSystemPointerSizeLog2));
+    push(tmp);
+    add(counter, counter, Operand(1));
+    bind(&entry);
+    cmp(counter, size);
+    b(lt, &loop);
+  } else {
+    mov(counter, size);
+    b(&entry);
+    bind(&loop);
+    ldr(tmp, MemOperand(array, counter, LSL, kSystemPointerSizeLog2));
+    push(tmp);
+    bind(&entry);
+    sub(counter, counter, Operand(1), SetCC);
+    b(ge, &loop);
+  }
 }
 
 void TurboAssembler::Move(Register dst, Smi smi) { mov(dst, Operand(smi)); }
@@ -850,6 +879,7 @@ void TurboAssembler::PushStandardFrame(Register function_reg) {
   int offset = -StandardFrameConstants::kContextOffset;
   offset += function_reg.is_valid() ? kPointerSize : 0;
   add(fp, sp, Operand(offset));
+  Push(kJavaScriptCallArgCountRegister);
 }
 
 void TurboAssembler::VFPCanonicalizeNaN(const DwVfpRegister dst,
@@ -1556,7 +1586,7 @@ void MacroAssembler::CallDebugOnFunctionCall(Register fun, Register new_target,
                                              Register expected_parameter_count,
                                              Register actual_parameter_count) {
   // Load receiver to pass it later to DebugOnFunctionCall hook.
-  ldr(r4, MemOperand(sp, actual_parameter_count, LSL, kPointerSizeLog2));
+  ldr(r4, ReceiverOperand(actual_parameter_count));
   FrameScope frame(this, has_frame() ? StackFrame::NONE : StackFrame::INTERNAL);
 
   SmiTag(expected_parameter_count);
@@ -2255,11 +2285,11 @@ int TurboAssembler::CalculateStackPassedWords(int num_reg_arguments,
                                               int num_double_arguments) {
   int stack_passed_words = 0;
   if (use_eabi_hardfloat()) {
-    // In the hard floating point calling convention, we can use
-    // all double registers to pass doubles.
-    if (num_double_arguments > DoubleRegister::NumRegisters()) {
+    // In the hard floating point calling convention, we can use all double
+    // registers to pass doubles.
+    if (num_double_arguments > DoubleRegister::SupportedRegisterCount()) {
       stack_passed_words +=
-          2 * (num_double_arguments - DoubleRegister::NumRegisters());
+          2 * (num_double_arguments - DoubleRegister::SupportedRegisterCount());
     }
   } else {
     // In the soft floating point calling convention, every double
@@ -2426,7 +2456,7 @@ void TurboAssembler::CheckPageFlag(Register object, int mask, Condition cc,
   Register scratch = temps.Acquire();
   DCHECK(cc == eq || cc == ne);
   Bfc(scratch, object, 0, kPageSizeBits);
-  ldr(scratch, MemOperand(scratch, MemoryChunk::kFlagsOffset));
+  ldr(scratch, MemOperand(scratch, BasicMemoryChunk::kFlagsOffset));
   tst(scratch, Operand(mask));
   b(cc, condition_met);
 }

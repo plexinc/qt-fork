@@ -63,7 +63,7 @@ public:
 
     // If the windowing system interface needs explicitly created window surfaces (like EGL),
     // reimplement these.
-    virtual void *createWindowSurface(void * /*nativeWindow*/, void * /*nativeConfig*/, const QSurfaceFormat /*format*/, int * /*err*/) { return nullptr; }
+    virtual void *createWindowSurface(void * /*nativeWindow*/, void * /*nativeConfig*/, int * /*err*/) { return nullptr; }
     virtual void destroyWindowSurface(void * /*nativeSurface*/) { }
 
 protected:

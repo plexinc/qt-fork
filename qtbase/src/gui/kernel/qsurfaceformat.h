@@ -57,8 +57,7 @@ public:
         StereoBuffers            = 0x0001,
         DebugContext             = 0x0002,
         DeprecatedFunctions      = 0x0004,
-        ResetNotification        = 0x0008,
-        UseOptimalOrientation    = 0x0010
+        ResetNotification        = 0x0008
     };
     Q_ENUM(FormatOption)
     Q_DECLARE_FLAGS(FormatOptions, FormatOption)
@@ -91,11 +90,6 @@ public:
         sRGBColorSpace
     };
     Q_ENUM(ColorSpace)
-
-    enum OrientationFlag {
-        MirrorVertically = 0x0001,
-    };
-    Q_DECLARE_FLAGS(OrientationFlags, OrientationFlag)
 
     QSurfaceFormat();
     /*implicit*/ QSurfaceFormat(FormatOptions options);
@@ -159,9 +153,6 @@ public:
 
     ColorSpace colorSpace() const;
     void setColorSpace(ColorSpace colorSpace);
-
-    QSurfaceFormat::OrientationFlags orientationFlags() const;
-    void setOrientationFlags(QSurfaceFormat::OrientationFlags orientationFlags);
 
     static void setDefaultFormat(const QSurfaceFormat &format);
     static QSurfaceFormat defaultFormat();

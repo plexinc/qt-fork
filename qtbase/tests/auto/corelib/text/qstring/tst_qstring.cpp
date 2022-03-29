@@ -1674,7 +1674,7 @@ void tst_QString::lastIndexOf()
     QCOMPARE(haystack.lastIndexOf(needle.toLatin1(), from, cs), expected);
     QCOMPARE(haystack.lastIndexOf(needle.toLatin1().data(), from, cs), expected);
 
-    if (from >= -1 && from < haystack.size()) {
+    if (from >= -1 && from < haystack.size() && needle.size() > 0) {
         // unfortunately, QString and QRegExp don't have the same out of bound semantics
         // I think QString is wrong -- See file log for contact information.
         {
@@ -1765,6 +1765,7 @@ void tst_QString::count()
     QCOMPARE(a.count( "", Qt::CaseInsensitive), 16);
     QCOMPARE(a.count(QRegExp("[FG][HI]")),1);
     QCOMPARE(a.count(QRegExp("[G][HE]")),2);
+    QCOMPARE(a.count(QRegularExpression("")), 16);
     QCOMPARE(a.count(QRegularExpression("[FG][HI]")), 1);
     QCOMPARE(a.count(QRegularExpression("[G][HE]")), 2);
     QTest::ignoreMessage(QtWarningMsg, "QString::count: invalid QRegularExpression object");
@@ -2966,6 +2967,17 @@ void tst_QString::replace_extra()
     // Also check the full values match, of course:
     QCOMPARE(str8.size(), ans8.size());
     QCOMPARE(str8, ans8);
+
+    {
+        QString s(QLatin1String("BBB"));
+        QString expected(QLatin1String("BBB"));
+        for (int i = 0; i < 1028; ++i) {
+            s.append("X");
+            expected.append("GXU");
+        }
+        s.replace(QChar('X'), "GXU");
+        QCOMPARE(s, expected);
+    }
 }
 
 void tst_QString::replace_string()
