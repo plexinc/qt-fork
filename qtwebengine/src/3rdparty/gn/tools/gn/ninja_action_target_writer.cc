@@ -119,6 +119,15 @@ std::string NinjaActionTargetWriter::WriteRuleDefinition() {
     // strictly necessary for regular one-shot actions, but it's easier to
     // just always define unique_name.
     std::string rspfile = custom_rule_name;
+
+    // https://codereview.qt-project.org/c/yocto/meta-qt5/+/192172/2/recipes-qt/qt5/qtwebengine/0001-chromium-workaround-for-too-long-.rps-file-name.patch
+    //quick workaround if filename length > 255 - ".rsp", just cut the dirs starting from the end
+    //please note ".$unique_name" is not used at the moment
+    int pos = 0;
+    std::string delimiter("_");
+    while (rspfile.length() > 251 && (pos = rspfile.find_last_of(delimiter)) != std::string::npos)
+        rspfile = rspfile.substr(0,pos);
+
     if (!target_->sources().empty())
       rspfile += ".$unique_name";
     rspfile += ".rsp";
