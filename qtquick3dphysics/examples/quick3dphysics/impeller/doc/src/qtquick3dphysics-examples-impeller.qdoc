@@ -1,0 +1,55 @@
+// Copyright (C) 2022 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example impeller
+    \ingroup quick3dphysics-examples
+    \title Qt Quick 3D Physics - Impeller Example
+    \brief Demonstrates using trigger bodies and collision info.
+    \image impeller-example.jpg
+
+    This example demonstrates how to use trigger bodies and collision info.
+    The scene consists of a green static plane, a red dynamic sphere, a pink box trigger and a blue static sphere.
+    When the red sphere overlaps the trigger body it will turn yellow and when it collides with the blue sphere it will be repelled away.
+
+    \section1 Setup
+
+    As usual we need to add our DynamicsWorld:
+
+    \snippet impeller/main.qml world
+
+    We also add a View3D where we put our scene objects.
+    In this we have some settings for the visual environment:
+
+    \snippet impeller/main.qml environment
+
+    \section1 Physical objects
+
+    We have our regular static plane:
+
+    \snippet impeller/main.qml plane
+
+    This is how our dynamic sphere is defined:
+
+    \snippet impeller/main.qml sphere
+
+    The property \c inArea is a custom property we use to keep track of when the sphere is overlapping the box trigger body.
+    This is then used for the \c baseColor property to make the sphere yellow when it is overlapping the box and red otherwise.
+    Since we want the sphere to partake in contact reporting the property \l {CollisionNode::} {sendContactReports} needs to be set to \c true.
+
+    Now let's look at the trigger body:
+
+    \snippet impeller/main.qml box
+
+    The qml type is a TriggerBody which acts like a static body except it's collisions are inactive.
+    Instead it will trigger \l {TriggerBody::} {bodyEntered} and \l {TriggerBody::} {bodyExited} method calls.
+    In this case we check if the triggering body has a \c inArea property and if so set it to \c true or \c false.
+
+    Finally, lets look at the impeller:
+
+    \snippet impeller/main.qml impeller
+
+    This is a static body and we set \l {CollisionNode::} {receiveContactReports} to \c true to enable the collision callbacks.
+    The callback \l {CollisionNode::} {bodyContact} gets called whenever a collision is reported.
+    In the method we add a repelling impulse in the opposite direction of the collision.
+*/

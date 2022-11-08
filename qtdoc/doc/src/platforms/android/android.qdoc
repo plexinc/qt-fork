@@ -1,0 +1,262 @@
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \page android.html
+    \title Qt for Android
+    \brief Provides information about Android support in Qt.
+    \ingroup supportedplatform
+    \previouspage android_runtime_licensing_notes.html
+    \nextpage android-getting-started.html
+
+    Qt for Android enables you to develop Qt applications for Android devices,
+    and supports a wide range of features and use-cases.
+
+    To download and install Qt for Android, follow the instructions on the
+    \l{Getting Started with Qt for Android} page. To build Qt from source,
+    see \l{Qt for Android - Building from Source}{Building from Source}.
+
+    \target android-supported-configurations
+    \section1 Supported Configurations
+
+    The following development environments and target system configurations are
+    supported in Qt \QtVer:
+
+    \include supported-platforms.qdocinc android
+
+    \table 50%
+    \header \li {4,1} Target Devices used in Automated Testing
+        \header \li Device \li OS Version \li Architecture \li Form Factor
+        \row \li \l{Pixel 3A}
+             \li Android 10 (API 29)
+             \li armv7, arm64_v8a
+             \li Mobile
+        \row \li \l{Pixel 4A}
+             \li Android 12 (API 31)
+             \li armv7, arm64_v8a
+             \li Mobile
+         \row \li \l{Samsung Galaxy Tab S4}
+             \li Android 10 (API 29)
+             \li armv7, arm64_v8a
+             \li Tablet
+         \row \li \l{Google Pixel 6 Pro}
+             \li Android 13 Beta 4.1
+             \li armv7, arm64_v8a
+             \li Mobile
+         \row \li \l{Samsung Galaxy S21}
+             \li Android 12 (API 31)
+             \li armv7, arm64_v8a
+             \li Mobile
+         \row \li \l{Motorola MotoG 3rd}
+             \li Android 6.0.1 (API 23)
+             \li armv7
+             \li Mobile
+         \row \li Huawei Honor
+             \li Android 6.0.1 (API 23)
+             \li armv7, arm64_v8a
+             \li Mobile
+         \row \li \l{Samsung Galaxy S10}
+             \li Android 9 (API 28)
+             \li armv7, arm64_v8a
+             \li Mobile
+         \row \li \l{Pixel 4}
+             \li Android 11 (API 30)
+             \li armv7, arm64_v8a
+             \li Mobile
+        \endtable
+
+    \note Qt for Android support is inclusive of \b{but not limited to} these devices.
+
+    \note The above table is accurate at the time of this Qt patch release only.
+    It may change during the patch release cycle and should only be used as a
+    reference for what the Qt Company can rapidly reproduce bugs on.
+
+    \section1 Where to Go from Here
+
+    We invite you to explore the rest of Qt. We prepared overviews which help
+    you decide which APIs to use and our examples demonstrate how to use our
+    APIs.
+
+    \list
+    \li \l{Qt Overviews} - list of topics about application development
+    \li \l{Qt Examples and Tutorials}{Examples and Tutorials} - code samples and tutorials
+    \li \l{Qt Reference Pages} - a listing of C++ and QML APIs
+    \li \l{Qt Creator: Creating a Mobile Application}
+    \li \l{Deploying Applications to Android Devices} with Qt Creator.
+    \endlist
+
+    The following topics also provide more details about Qt for Android:
+
+    \annotatedlist androidplatform
+
+    Qt's vibrant and active \l{https://www.qt.io/developers}{community site}
+    houses a wiki, a forum, and additional learning guides and presentations.
+*/
+
+/*!
+    \page android-getting-started.html
+    \title Getting Started with Qt for Android
+    \brief Provides instructions to install and configure your development environment.
+    \ingroup androidplatform
+    \previouspage android.html
+    \nextpage android-building.html
+
+    To download and install Qt for Android, follow the instructions on the
+    \l{Getting Started with Qt} page.
+
+    \section1 Android Development Prerequisites
+
+    In order to develop with \l{Qt for Android}, you will also need the following
+    prerequisites:
+
+    \list
+        \li Java Development Kit (JDK) for Java development
+        \li \l{Android: Android command line tools}{Android SDK Command Line Tools}
+            for managing dependencies required for developing with Qt for Android,
+            including:
+            \list
+                \li \l{Android: Android SDK Platforms}{Android SDK Platform}
+                \li \l{Android: Android SDK Platform Tools}{Android SDK Platform Tools}
+                \li \l{Android: Android SDK Build Tools}{Android SDK Build Tools}
+                \li \l{Android: The Android NDK}{Android NDK}
+            \endlist
+    \endlist
+
+    The easiest way to manage these dependencies is by using Qt Creator's built in
+    Android development setup. For more information, see
+    \l{Qt Creator: Specifying Android Device Settings}.
+
+    \section2 Manually Installing the Prerequisites
+
+    If you prefer to manually install the prerequisites please follow
+    these next steps.
+
+    \section3 Java Development Kit (JDK)
+
+    Qt for Android development requires JDK 11 or above, provided by any of the
+    following supported distributions:
+
+    \list
+        \li \l{AdoptOpenJDK}
+        \li \l{OpenJDK}
+        \li \l{Java SE Development Kit}
+    \endlist
+
+    Please install your preferred JDK, and then make sure the \c JAVA_HOME
+    environment variable is pointing to the location of the installed JDK.
+
+    For example for Linux:
+
+    \badcode
+        sudo apt-get install openjdk-11-jdk
+        export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+    \endcode
+
+    Or for \macOS:
+
+    \badcode
+        brew install openjdk@11
+        sudo ln -sfn "$(brew --prefix openjdk@11)/libexec/openjdk.jdk" "/Library/Java/JavaVirtualMachines/openjdk-11.jdk"
+        export JAVA_HOME="$(/usr/libexec/java_home -v 11)"
+    \endcode
+
+    \section3 Android SDK Command Line Tools
+
+    Install the latest version of the
+    \l{Android: Android command line tools}{Android SDK Command Line Tools}
+    for your operating system, and verify that the installation succeeded by running
+    the \l{Android: sdkmanager}{sdkmanager} binary:
+
+    \badcode
+        sdkmanager --version
+    \endcode
+
+    Then make sure the \c ANDROID_SDK_ROOT environment variable is pointing to the
+    location of the installed command line tools.
+
+    For example for \macOS:
+
+    \badcode
+        brew install android-commandlinetool
+        export ANDROID_SDK_ROOT="$(brew --prefix)/share/android-commandlinetools"
+    \endcode
+
+    \section3 Android SDK
+
+    The required version of the Platform, Platform Tools, and Build Tools for \QtVer is 31.
+
+    To install all of these run the following command:
+
+    \badcode
+        sdkmanager "platforms;android-31" "platform-tools" "build-tools;31.0.0"
+    \endcode
+
+    \section3 Android NDK
+
+    The required version of the Android NDK for \QtVer is 23.1.7779620.
+
+    To install the NDK run the following command:
+
+    \badcode
+        sdkmanager "ndk;23.1.7779620"
+    \endcode
+
+    Then make sure the \c ANDROID_NDK_ROOT environment variable is pointing to the
+    location of the installed NDK.
+
+    For example for \macOS:
+
+    \badcode
+        export ANDROID_NDK_ROOT="$(brew --prefix)/share/android-commandlinetools/ndk/23.1.7779620/"
+    \endcode
+
+    \section3 Emulator
+
+    If you wish to use the \l{Android: Android Emulator}{Android Emulator},
+    you can install it by running:
+
+    \badcode
+        sdkmanager "emulator" "patcher;v4"
+    \endcode
+
+    \section3 Platform Specific Configurations
+
+    \section4 Windows
+
+    The default USB driver on Windows does not allow debugging using
+    Android Debug Bridge (ADB) tool. You must install the additional USB driver
+    provided by the \e extras Android SDK package. To install it, run the following:
+
+    \badcode
+        sdkmanager.bat "extras;google;usb_driver"
+    \endcode
+
+    After the package installation is complete, install the driver from
+    \c{<ANDROID_SDK_ROOT>/extras/google/usb_driver}. Try running a few basic
+    \l{Android: adb}{adb} commands now and check whether your Android device
+    responds to them.
+
+    \section4 Linux
+
+    The following dependencies are needed for using tools such as \c adb or \c gdb which
+    can be used by Qt Creator:
+
+    \badcode
+        sudo apt-get install libstdc++6 libncurses5
+    \endcode
+
+    \target emulator dependencies
+    To run the Android emulator, the following dependencies are also necessary:
+
+    \badcode
+        sudo apt-get install libsdl1.2debian
+    \endcode
+
+    \section3 Testing Your Setup
+
+    Now you can test your development setup by running the examples shipped with the
+    Qt installation. For more information, see \l {Qt for Android Examples}.
+
+    To develop a simple application from scratch, see
+    \l {Qt Creator: Creating a Mobile Application}.
+*/

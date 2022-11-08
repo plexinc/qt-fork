@@ -1,0 +1,58 @@
+# C++ objects and libs
+
+*.slo
+*.lo
+*.o
+*.a
+*.la
+*.lai
+*.so
+*.so.*
+*.dll
+*.dylib
+*.obj
+Makefile*
+
+# Directories to ignore
+# ---------------------
+
+include/*
+include/*/*
+lib/*
+
+# generated module def and version header files
+mkspecs/modules/qt_*.pri
+mkspecs/modules-inst/
+
+examples/websocketserver/websocketserver
+build-examples-Qt_5_1_0_clang_64_temporary-Debug/websocketserver/websocketserver
+examples/examples.pro.user.2.7pre1
+build-unittests-Qt_5_1_0_clang_64-Debug/unittest_result.xml
+build-unittests-Qt_5_1_0_clang_64-Debug/unittests
+build-unittests-Qt_5_1_0_clang_64-Release/unittests
+examples/.coverity-submit
+
+# Qt specific
+.qmake.cache
+*.pro.user
+*.pro.shared
+moc_*.cpp
+*.moc
+*_resource.rc
+ui_*.h
+qrc_*.cpp
+
+*~
+*.pdb
+*.exe
+*.lib
+*.res
+*.exp
+*.manifest
+config.log
+tmp
+imports/*
+include
+tests/auto/cmake/build
+lib/
+mkspecs/

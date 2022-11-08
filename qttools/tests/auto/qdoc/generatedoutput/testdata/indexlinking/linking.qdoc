@@ -1,0 +1,25 @@
+// Copyright (C) 2020 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+
+/*!
+    \page index-linking.html
+    \title Linking
+
+    \section1 QML properties
+    \list A
+        \li Property group: \l [QML] {Parent::group}.
+        \li Property in a group: \l [QmlPropertyGroups]
+            QDoc.Test::Parent::group.c.
+    \endlist
+*/
+
+/*!
+    \title LinkModule QML Types
+    \qmlmodule LinkModule 1.0
+*/
+
+/*!
+    \qmltype GrandChild
+    \inqmlmodule LinkModule
+    \inherits AnotherChild
+*/

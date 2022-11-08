@@ -1,0 +1,24 @@
+// Copyright (C) 2022 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+\page qtqml-qtquick-compiler-tech.html
+\title Qt Quick Compiler
+\brief Overview of Qt Quick Compiler components
+
+The Qt Quick Compiler consist of two components:
+\list
+    \li \l {QML Type Compiler}
+    \li \l {QML Script Compiler}
+\endlist
+
+The QML Type Compiler (\e qmltc) compiles QML object structures into C++ classes.
+The QML Script Compiler compiles functions and expressions in QML files of an
+application into C++ code.
+
+\e qmltc uses an all-or-nothing approach, and compilation simply fails if
+some unsupported language feature is encountered.
+
+In the case of \e qmlsc JavaScript sets limitations on compiling with \e qmlsc.
+For more information see \l {Limitations when compiling JavaScript}.
+*/

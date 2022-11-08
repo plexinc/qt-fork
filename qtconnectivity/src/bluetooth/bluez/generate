@@ -1,0 +1,34 @@
+#!/bin/sh
+
+QGLOBAL_P_H=QtCore/private/qglobal_p.h
+
+process() {
+    CPP_BASENAME=$1
+    shift
+    XML_FILE="$1"
+    shift
+
+    HEADER_FILE=${CPP_BASENAME}_p.h
+    CPP_FILE=${CPP_BASENAME}.cpp
+    qdbusxml2cpp "$@" -i "$QGLOBAL_P_H" -p $HEADER_FILE:$CPP_FILE "$XML_FILE"
+
+    # until QTBUG-103313 is fixed:
+    MOC_FILE=moc_${CPP_BASENAME}_p.cpp
+    echo >> "$CPP_FILE"
+    echo "#include \"$MOC_FILE\"" >> "$CPP_FILE"
+}
+
+#Bluez 5
+process adapter1_bluez5  org.bluez.Adapter1.xml
+process device1_bluez5   org.bluez.Device1.xml -i bluez5_helper_p.h
+process profilemanager1  org.bluez.ProfileManager1.xml
+process profile1         org.bluez.Profile1.xml
+
+process objectmanager    org.freedesktop.dbus.objectmanager.xml -i bluez5_helper_p.h
+process properties       org.freedesktop.dbus.properties.xml
+
+process gattchar1        org.bluez.GattCharacteristic1.xml
+process gattdesc1        org.bluez.GattDescriptor1.xml
+process gattservice1     org.bluez.GattService1.xml
+process battery1         org.bluez.Battery1.xml
+

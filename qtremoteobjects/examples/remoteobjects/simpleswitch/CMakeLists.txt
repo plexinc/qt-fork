@@ -1,0 +1,5 @@
+qt_internal_add_example(directconnectclient)
+qt_internal_add_example(directconnectdynamicclient)
+qt_internal_add_example(directconnectserver)
+qt_internal_add_example(registryconnectedclient)
+qt_internal_add_example(registryconnectedserver)

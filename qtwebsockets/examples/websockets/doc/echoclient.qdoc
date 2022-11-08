@@ -1,0 +1,14 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
+
+/*!
+    \example echoclient
+    \title Echo Client Example
+    \ingroup qtwebsockets-examples
+    \brief Describes how to use the WebSocket API for creating a simple echo client.
+
+    The Echo Client Example shows how to use the WebSocket API to create a simple
+    echo client.
+
+    \sa {Echo Server Example}
+*/

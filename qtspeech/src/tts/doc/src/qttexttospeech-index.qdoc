@@ -1,0 +1,65 @@
+// Copyright (C) 2017 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+   \page qttexttospeech-index.html
+   \title Qt TextToSpeech
+   \brief The Qt TextToSpeech module enables access to text-to-speech engines
+
+   The module enables a Qt application to support accessibility features such
+   as text-to-speech, which is useful for end-users who cannot access the
+   application's visual interface. In addition to assistive technologies like
+   screen readers, the most common use case for text-to-speech is when the
+   end-user is driving or operating machinery. In such a scenario, an application
+   can use text-to-speech to read out incoming notifications, or to provide
+   turn-by-turn navigation instructions.
+
+   On Linux, the module can use the Speech Dispatcher daemon (libspeechd), or
+   flite. On other platforms, it uses the native system APIs to access the
+   platform-specific text-to-speech engines.
+
+   \section1 Using the Module
+
+   \section2 QML API
+
+   \include {module-use.qdocinc} {using the qml api} {QtTextToSpeech}
+
+   \section2 C++ API
+
+   \include {module-use.qdocinc} {using the c++ api}
+
+   \section3 Building with CMake
+
+   \include {module-use.qdocinc} {building with cmake} {TextToSpeech}
+
+   \section3 Building with qmake
+
+   \include {module-use.qdocinc} {building_with_qmake} {texttospeech}
+
+   \section1 Overviews and Important Topics
+
+   \list
+      \li \l{Changes to Qt TextToSpeech}{Changes in Qt 6}
+   \endlist
+
+   \section1 QML Types
+
+   The following lists some important QML types.
+
+   \generatelist qmltypesbymodule QtTextToSpeech
+
+   \section1 C++ Classes
+
+   The following lists some important C++ Classes.
+
+   \generatelist classesbymodule QtTextToSpeech
+
+   \section1 Reference and Examples
+
+   \list
+      \li \l{Qt TextToSpeech QML Types}{QML Types}
+      \li \l{Qt TextToSpeech C++ Classes}{C++ Classes}
+      \li \l{Qt TextToSpeech Examples}{Examples}
+      \li \l{Qt TextToSpeech Engines}{Engine Documentation}
+   \endlist
+*/

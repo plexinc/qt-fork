@@ -1,0 +1,25 @@
+// Copyright (C) 2017 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*! \example can
+    \title CAN Bus example
+
+    \brief The example sends and receives CAN bus frames.
+
+    The example sends and receives CAN bus frames. Incoming frames
+    are ordered according to their type. A connect dialog is
+    provided to adjust the CAN Bus connection parameters.
+
+    \ingroup qtserialbus-examples
+
+    Key \l{Qt Serial Bus} classes used in this example:
+
+    \list
+    \li \l{QCanBusDevice}
+    \li \l{QCanBusFrame}
+    \endlist
+
+    \image ../images/can-example.png
+
+    \include examples-run.qdocinc
+*/

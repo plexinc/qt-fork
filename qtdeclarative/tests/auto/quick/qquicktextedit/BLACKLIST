@@ -1,0 +1,27 @@
+[mouseSelection]
+opensuse-leap
+
+# QTBUG-78846
+[mouseSelectionMode]
+opensuse-leap
+
+# QTBUG-82052
+[linkHover]
+macos ci
+
+[hAlignVisual]
+sles
+
+# QTBUG-103098
+[hAlignVisual]
+android
+[linkHover]
+android
+[cursorVisible]
+android
+[transparentSelectionColor]
+android
+
+# QTBUG-100991
+[selectionOnFocusOut]
+android
