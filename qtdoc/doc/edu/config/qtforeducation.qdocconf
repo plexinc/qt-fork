@@ -1,8 +1,0 @@
-sourcedirs += \
-    ../src
-
-imagedirs += \
-    ../images
-
-navigation.toctitles += "Qt for Education"
-navigation.toctitles.inclusive = true

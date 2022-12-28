@@ -1,6 +1,0 @@
-add_subdirectory(webview)
-add_subdirectory(quick)
-add_subdirectory(plugins)
-if(ANDROID)
-    add_subdirectory(jar)
-endif()

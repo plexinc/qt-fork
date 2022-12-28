@@ -1,5 +1,0 @@
-<RCC>
-    <qresource prefix="/">
-        <file>qml/qmlheightmap/qml/main.qml</file>
-    </qresource>
-</RCC>

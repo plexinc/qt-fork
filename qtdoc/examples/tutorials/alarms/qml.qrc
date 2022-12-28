@@ -1,9 +1,0 @@
-<RCC>
-    <qresource prefix="/alarms/">
-        <file>main.qml</file>
-        <file>TumblerDelegate.qml</file>
-        <file>AlarmModel.qml</file>
-        <file>AlarmDelegate.qml</file>
-        <file>AlarmDialog.qml</file>
-    </qresource>
-</RCC>
