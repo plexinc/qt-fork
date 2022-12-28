@@ -1,0 +1,6 @@
+qt_internal_add_example(application)
+qt_internal_add_example(dockwidgets)
+qt_internal_add_example(mainwindow)
+qt_internal_add_example(mdi)
+qt_internal_add_example(menus)
+qt_internal_add_example(sdi)

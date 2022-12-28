@@ -1,0 +1,14 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
+
+/*!
+    \example simplechat
+    \title Simple Chat Example
+    \ingroup qtwebsockets-examples
+    \brief Shows how to use the QWebSocket and QWebSocketServer classes
+    for creating a minimalistic chat application over the WebSocket protocol.
+
+    The Simple Chat Example shows how to use the QWebSocket and QWebSocketServer
+    classes to create a minimalistic chat application over the WebSocket protocol.
+
+*/

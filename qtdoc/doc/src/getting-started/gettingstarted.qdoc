@@ -1,0 +1,43 @@
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \page gettingstarted.html
+
+    \title Getting Started with Qt
+    \brief Finding your way around Qt.
+
+    Hello and welcome to Qt!
+
+    To get you started with Qt, we'll need to know what you'd like to do.
+
+    \table
+    \row
+        \li \inlineimage front-ui.png
+        \li \inlineimage front-coding.png
+    \row
+        \li \b {Design UIs}
+            \list
+                \li \l {Solutions for UI Design}
+                \li \l {Tools for Qt Quick UIs}
+                \li \l {Install Qt Design Studio}
+                \li \l {Qt for Education}
+                       {Install Qt Design Studio with Educational License}
+                \li \l {Tools for Qt Widget-Based UIs}
+                \li \l {Get and Install Qt}
+                \li \l {Supported Platforms}
+                \li \l {Create Your First Applications}
+                \li \l {Explore Qt}
+            \endlist
+        \li \b {Develop applications}
+            \list
+                \li \l {Solutions for Application Development}
+                \li \l {Get and Install Qt}
+                \li \l {Qt for Education}
+                       {Install Qt with Educational License}
+                \li \l {Supported Platforms}
+                \li \l {Create Your First Applications}
+                \li \l {Explore Qt}
+            \endlist
+    \endtable
+*/

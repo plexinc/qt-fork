@@ -1,0 +1,17 @@
+# Copyright (C) 2022 The Qt Company Ltd.
+# SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
+if(TARGET Qt::WebEngineCore)
+    add_subdirectory(httpserver)
+    add_subdirectory(util)
+    add_subdirectory(core)
+endif()
+if(TARGET Qt::WebEngineQuick)
+    add_subdirectory(quick)
+endif()
+if(TARGET Qt::WebEngineWidgets)
+    add_subdirectory(widgets)
+endif()
+if(TARGET Qt::Pdf)
+    add_subdirectory(pdf)
+    add_subdirectory(pdfquick)
+endif()

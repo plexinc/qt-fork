@@ -1,0 +1,32 @@
+cmake_minimum_required(VERSION 3.16)
+project(x509 LANGUAGES CXX)
+
+set(CMAKE_AUTOMOC ON)
+
+if(NOT DEFINED INSTALL_EXAMPLESDIR)
+    set(INSTALL_EXAMPLESDIR "examples")
+endif()
+
+set(INSTALL_EXAMPLEDIR "${INSTALL_EXAMPLESDIR}/opcua/x509")
+
+find_package(Qt6 REQUIRED COMPONENTS Core OpcUa)
+
+qt_add_executable(x509
+    main.cpp
+)
+
+set_target_properties(x509 PROPERTIES
+    WIN32_EXECUTABLE TRUE
+    MACOSX_BUNDLE TRUE
+)
+
+target_link_libraries(x509 PUBLIC
+    Qt::Core
+    Qt::OpcUa
+)
+
+install(TARGETS x509
+    RUNTIME DESTINATION "${INSTALL_EXAMPLEDIR}"
+    BUNDLE DESTINATION "${INSTALL_EXAMPLEDIR}"
+    LIBRARY DESTINATION "${INSTALL_EXAMPLEDIR}"
+)

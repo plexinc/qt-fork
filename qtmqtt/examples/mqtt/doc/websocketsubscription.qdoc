@@ -1,0 +1,14 @@
+// Copyright (C) 2018 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example websocketsubscription
+    \title WebSockets MQTT Subscription Example
+    \ingroup qtmqtt-examples
+    \brief Combining an MQTT client with a web socket connection.
+
+    \e {WebSockets MQTT Subscription} shows how to design a custom
+    QIODevice to combine a \l {Qt WebSockets}{web socket} connection with
+    QMqttClient.
+
+*/

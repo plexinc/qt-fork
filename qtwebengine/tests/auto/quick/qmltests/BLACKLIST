@@ -1,0 +1,17 @@
+[NewWindowRequest::test_loadNewWindowRequest]
+macos
+
+[WebEngineViewContextMenu::test_contextMenuLinkAndSelectedText]
+macos
+
+[CertificateError::test_fatalError]
+*
+
+[CertificateError::test_error]
+*
+
+[WebViewFindText::test_findTextInterruptedByLoad]
+b2qt arm 64bit
+
+[WebEngineViewLoadUrl::test_loadStartedAfterInPageNavigation]
+b2qt

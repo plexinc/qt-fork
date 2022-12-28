@@ -1,0 +1,20 @@
+// Copyright (C) 2022 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example quickspeech
+    \title Quick Speech Example
+    \ingroup qttexttospeech_examples
+    \brief The Quick Speech example reads out user-provided text.
+
+    The \e{Quick Speech} example demonstrates how the \l[QML]{TextToSpeech} type can be used
+    in a \l{Qt Quick} application to read out text, and to control the speech.
+
+    The example uses \l{Qt Quick Controls} to provide controls for the pitch, volume, and
+    rate of the speech. It also lets the user select an engine, the language, and a
+    voice.
+
+    \image quickspeech-example.png
+
+    \include examples-run.qdocinc
+*/

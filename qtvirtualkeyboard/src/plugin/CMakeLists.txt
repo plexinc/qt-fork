@@ -1,0 +1,25 @@
+#####################################################################
+## QVirtualKeyboardPlugin Plugin:
+#####################################################################
+
+qt_internal_add_plugin(QVirtualKeyboardPlugin
+    OUTPUT_NAME qtvirtualkeyboardplugin
+    PLUGIN_TYPE platforminputcontexts
+    DEFAULT_IF FALSE
+    SOURCES
+        plugin.cpp plugin.h
+    DEFINES
+        QT_ASCII_CAST_WARNINGS
+        QT_NO_CAST_FROM_ASCII
+        QT_NO_CAST_FROM_BYTEARRAY
+        QT_NO_CAST_TO_ASCII
+    LIBRARIES
+        Qt::Core
+        Qt::Gui
+        Qt::VirtualKeyboardPrivate
+)
+
+qt_internal_extend_target(QVirtualKeyboardPlugin CONDITION WIN32
+    LIBRARIES
+        imm32
+)

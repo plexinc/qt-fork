@@ -1,0 +1,7 @@
+Version: 2
+Include: [
+    cmake_platforms.yaml,
+    integrity.yaml,
+    cmake_platforms_static_tests.yaml
+]
+Configurations: []

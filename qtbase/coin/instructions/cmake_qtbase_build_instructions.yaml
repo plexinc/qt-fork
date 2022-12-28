@@ -1,0 +1,53 @@
+type: Group
+instructions:
+  - type: MakeDirectory
+    directory: .git
+  - type: SetBuildDirectory
+    directory: "{{.SourceDir}}"
+  - type: ChangeDirectory
+    directory: "{{.BuildDir}}"
+
+  - type: EnvironmentVariable
+    variableName: COIN_CONFIGURE_ARGS
+    variableValue: "{{.Env.CONFIGURE_ARGS}}"
+  - type: EnvironmentVariable
+    variableName: COIN_CMAKE_ARGS
+    # Use unix separators even on Windows, to avoid escaping issues in the configure script.
+    variableValue: "{{.Env.CMAKE_ARGS}} {{.Env.COMMON_CMAKE_ARGS}} -DCMAKE_INSTALL_PREFIX:PATH={{unixPathSeparators .InstallDir}}"
+  - type: EnvironmentVariable
+    variableName: CONFIGURE_ENV_PREFIX
+    variableValue: "{{.Env.ENV_PREFIX}}"
+  - !include "{{qt/qtbase}}/call_configure_qtbase.yaml"
+
+  - type: ExecuteCommand
+    command: "{{.Env.CONFIGURE_ENV_PREFIX}} cmake --build . --parallel -v"
+    maxTimeInSeconds: 6000
+    maxTimeBetweenOutput: 1200
+    userMessageOnFailure: >
+      Failed to build sources.
+  - type: EnvironmentVariable
+    variableName: COIN_CMAKE_INSTALL_SCRIPT_PATH
+    variableValue: "{{.BuildDir}}"
+  - !include "{{qt/qtbase}}/call_host_install.yaml"
+  - type: EnvironmentVariable
+    variableName: DESTDIR
+    variableValue: "{{.InstallRoot}}"
+  - !include "{{qt/qtbase}}/call_host_install.yaml"
+  - type: SignPackage
+    enable_if:
+      condition: property
+      property: host.os
+      equals_value: Windows
+    directory: "{{.InstallRoot}}/{{.AgentWorkingDir}}"
+    maxTimeInSeconds: 1200
+    maxTimeBetweenOutput: 1200
+  - type: UploadArtifact
+    archiveDirectory: "{{.InstallRoot}}/{{.AgentWorkingDir}}"
+    transferType: UploadModuleBuildArtifact
+    maxTimeInSeconds: 1200
+    maxTimeBetweenOutput: 1200
+  - type: EnvironmentVariable
+    variableName: COIN_CONFIG_TYPE
+    variableValue: "Host"
+  - !include "{{qt/qtbase}}/qmake/get_qmake_location_host.yaml"
+  - !include "{{qt/qtbase}}/qmake_examples/build_qmake_examples_instructions.yaml"

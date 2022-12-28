@@ -1,0 +1,7 @@
+if(NOT TARGET Qt::Widgets)
+    return()
+endif()
+qt_internal_add_example(pinchzoom)
+qt_internal_add_example(fingerpaint)
+qt_internal_add_example(knobs)
+qt_internal_add_example(dials)

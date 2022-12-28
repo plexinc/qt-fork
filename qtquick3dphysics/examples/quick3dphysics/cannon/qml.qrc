@@ -1,0 +1,8 @@
+<RCC>
+    <qresource prefix="/">
+        <file>main.qml</file>
+        <file>box.qml</file>
+        <file>sphere.qml</file>
+        <file>Crosshair.qml</file>
+    </qresource>
+</RCC>

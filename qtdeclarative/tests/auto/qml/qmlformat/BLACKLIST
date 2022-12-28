@@ -1,0 +1,3 @@
+# QTBUG-98494
+[testExample]
+windows-10 gcc

@@ -1,0 +1,9 @@
+// Copyright (C) 2016 Klarälvdalens Datakonsult AB, a KDAB Group company, info@kdab.com, author Milian Wolff <milian.wolff@kdab.com>
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR BSD-3-Clause
+
+/*!
+    \example qmlwebsocketserver
+    \title QML WebSocket Server Example
+    \ingroup qtwebsockets-examples
+    \brief A simple example that shows how to use a QML WebSocketServer.
+*/
