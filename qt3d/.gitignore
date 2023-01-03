@@ -1,0 +1,88 @@
+doc/html
+doc/qt3d
+*.swp
+*~
+*.user
+*.user.*
+.dir-locals.el
+src/quick3d/qt3dquickversion.h
+src/threed/qt3dversion.h
+tmp
+Makefile*
+*.pdb
+bin/*
+include/*
+*_resource.rc
+*~
+*.a
+*.la
+*.core
+*.moc
+*.o
+*.obj
+*.orig
+*.qmlc
+*.rej
+*.so
+*.so.*
+*_pch.h.cpp
+*_resource.rc
+.qmake.cache
+.qmake.vars
+.qmake.stash
+*.prl
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+
+# Directories to ignore
+.moc
+.rcc
+.uic
+.pch
+
+# Test generated files
+tst_*
+!tst_*.*
+tst_*.log
+tst_*.debug
+tst_*~
+tests/auto/cmake/build
+
+# Visual Studio generated files
+*.ib_pdb_index
+*.idb
+*.ilk
+*.pdb
+*.sln
+*.suo
+*.vcproj
+*vcproj.*.*.user
+*.ncb
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+# MinGW generated files
+*.Debug
+*.Release
+
+# Examples and demoes
+!examples/*/*[.]*
+!examples/*/README
+examples/*/*[.]app
+examples/*/*[.]exe
+examples/*/*/*[.]exe
+
+# Assimp
+AssimpLog.txt
+
+# Generated wrapper scripts
+*_wrapper.sh
+*_wrapper.bat
+wrapper.sh
+wrapper.bat
+
+# macOS files
+.DS_Store
+

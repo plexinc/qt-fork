@@ -1,0 +1,22 @@
+// Copyright (C) 2021 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+    \example video/recorder
+    \title QML Recorder Example
+    \ingroup multimedia_examples
+    \ingroup video_examples_qml
+    \ingroup camera_examples_qml
+    \brief Recording audio and video using Qt Quick.
+    \meta {tag} {quick}
+
+    \image qmlrecorder.jpg
+
+    \e{QML Recorder} demonstrates a simple application that can record
+    audio and or video files using the camera and microphone.
+
+    \include examples-run.qdocinc
+
+    The example uses the QML Camera and AudioInput objects connected to a MediaCaptureSession.
+    A MediaRecorder object is then used to record the captured audio and video.
+*/

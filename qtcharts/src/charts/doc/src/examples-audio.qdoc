@@ -1,0 +1,13 @@
+// Copyright (C) 2016 The Qt Company Ltd.
+// SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GFDL-1.3-no-invariants-only
+
+/*!
+     \example audio
+     \title Audio Example
+     \ingroup qtcharts_examples
+
+     \brief This example shows the drawing of dynamic data (microphone input).
+     \image examples_audio.png
+
+    \include examples-run.qdocinc
+*/
