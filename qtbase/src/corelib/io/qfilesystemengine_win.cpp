@@ -62,6 +62,11 @@ typedef INT_PTR intptr_t;
 #  define INVALID_FILE_ATTRIBUTES (DWORD (-1))
 #endif
 
+typedef struct _FILE_ID_INFO {
+  ULONGLONG VolumeSerialNumber;
+  FILE_ID_128 FileId;
+} FILE_ID_INFO, *PFILE_ID_INFO;
+
 #if !defined(REPARSE_DATA_BUFFER_HEADER_SIZE)
 typedef struct _REPARSE_DATA_BUFFER {
     ULONG  ReparseTag;
