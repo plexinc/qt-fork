@@ -1,0 +1,88 @@
+callgrind.out.*
+pcviewer.cfg
+*~
+*.a
+*.la
+*.core
+*.moc
+*.o
+*.obj
+*.orig
+*.swp
+*.rej
+*.so
+*.dll
+*.exe
+*.pbxuser
+*.mode1
+*.mode1v3
+*_pch.h.cpp
+*_resource.rc
+.#*
+*.*#
+core
+*.prl
+tags
+.DS_Store
+*.debug
+Makefile*
+*.app
+*.pro.user
+*.qmlproject.user
+*.gcov
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+
+# Test generated files
+QObject.log
+tst_*
+!tst_*.*
+tst_*.log
+tst_*.debug
+tst_*~
+
+# xemacs temporary files
+*.flc
+
+# Vim temporary files
+.*.swp
+
+# Visual Studio generated files
+*.ib_pdb_index
+*.idb
+*.ilk
+*.pdb
+*.sln
+*.suo
+*.vcproj
+*vcproj.*.*.user
+*.ncb
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+# MinGW generated files
+*.Debug
+*.Release
+
+# Directories to ignore
+# ---------------------
+
+debug
+release
+tmp
+.rcc
+.pch
+.metadata
+
+# Carbide project files
+# ---------------------
+.project
+.cproject
+.make.cache
+*.d
+
+qtc-debugging-helper
+
+.pc/

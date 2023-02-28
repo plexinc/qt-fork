@@ -1,0 +1,276 @@
+#!/bin/sh
+usage () { echo Usage: `basename $0` '[-h|-u] [-r ref] [--] command...'; }
+#############################################################################
+##
+## Copyright (C) 2016 The Qt Company Ltd.
+## Contact: https://www.qt.io/licensing/
+##
+## This file is part of the release tools of the Qt Toolkit.
+##
+## $QT_BEGIN_LICENSE:LGPL$
+## Commercial License Usage
+## Licensees holding valid commercial Qt licenses may use this file in
+## accordance with the commercial license agreement provided with the
+## Software or, alternatively, in accordance with the terms contained in
+## a written agreement between you and The Qt Company. For licensing terms
+## and conditions see https://www.qt.io/terms-conditions. For further
+## information use the contact form at https://www.qt.io/contact-us.
+##
+## GNU Lesser General Public License Usage
+## Alternatively, this file may be used under the terms of the GNU Lesser
+## General Public License version 3 as published by the Free Software
+## Foundation and appearing in the file LICENSE.LGPL3 included in the
+## packaging of this file. Please review the following information to
+## ensure the GNU Lesser General Public License version 3 requirements
+## will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
+##
+## GNU General Public License Usage
+## Alternatively, this file may be used under the terms of the GNU
+## General Public License version 2.0 or (at your option) the GNU General
+## Public license version 3 or any later version approved by the KDE Free
+## Qt Foundation. The licenses are as published by the Free Software
+## Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+## included in the packaging of this file. Please review the following
+## information to ensure the GNU General Public License requirements will
+## be met: https://www.gnu.org/licenses/gpl-2.0.html and
+## https://www.gnu.org/licenses/gpl-3.0.html.
+##
+## $QT_END_LICENSE$
+##
+#############################################################################
+
+help () {
+    usage
+    # Example data:
+    [ "$LAST" ] || LAST=v5.9.0
+    [ "$NEXT" ] || NEXT=5.10
+    [ "$TASK" ] || TASK=QTBUG-5678
+    ME=`basename $0`
+    cat <<EOF
+
+Run from the top-level (qt5) directory of a full Qt checkout with the
+module-set of an imminent release.  For API change review generation,
+check out .gitmodules on the reference version, so as to use its list
+of modules (and skip modules that were in preview back then).  Give
+this script a command to run in each module; the purpose of this
+script is to run api-review-gen on each; but it also serves to prepare
+for this and later to run a git push to send the results to Gerrit for
+review.  See examples below and output of ./api-review-gen -h for
+further details.
+
+Although this script can be used to run a general command in each
+module, its selection of modules is specifically geared towards the
+particular task of generating API change reviews, under the conditions
+described above; a general module iterator might one day replace it,
+but please don't try to evolve this into that.
+
+Options:
+
+ -u
+ --usage   Print simple usage summary (first line above) and exit.
+
+ -h
+ --help    Print this help and exit.
+
+ -i
+ --ignored
+           Invert the selection on status, to get the modules that
+           would normally be ignored, but that otherwise would qualify
+           for review.
+
+ -r ref
+ --require ref
+           Limit to modules that have a specific branch or tag.
+           May be used repeatedly to require several refs.
+
+ --        End option processing.
+
+Arguments:
+
+ command...
+          The command to run in each relevant module, along with its
+          arguments.
+
+Several --require options may be used; for example, one for a prior
+release tag, another for an imminent release branch.  Note that, if a
+relevant module is missing (not cloned), this script silently skips
+it; you do need to have a suitable full work tree.
+
+By way of example, here's the work-flow for producing an API change
+review between $LAST and $NEXT to be tracked by Jira issue $TASK (you
+can set LAST, NEXT and TASK in the environment to configure the
+examples), assuming qtqa/scripts/api-review is in your PATH:
+
+ Get qt5 up to date, but with the old .gitmodules:
+ $ git checkout $NEXT && git pull --ff-only
+ $ git checkout $LAST -- .gitmodules
+
+ Check status of all relevant modules:
+ $ $ME git status
+ You'll need all your working trees clean before you proceed.
+
+ Get each potentially relevant module's origin up to date:
+ $ $ME git fetch origin
+
+ Make sure each has the new branch available to check out:
+ $ $ME -r origin/$NEXT \\
+        git fetch origin $NEXT:$NEXT '||' git pull --ff-only
+
+ Generate review branches (but see notes following):
+ $ $ME -r $LAST -r $NEXT api-review-gen -t $TASK $LAST $NEXT
+
+ Add a --amend before the -t in that to update review branches to
+ reflect changes in imminent release (e.g. fixes for an earlier round
+ of review) after updating $NEXT as above.  If the $NEXT branch name
+ isn't the imminent release's version (e.g. if the release hasn't yet
+ branched out from dev), see the --release option to api-review-gen.
+
+ Examine residual diff (should all be boring):
+ $ $ME -r api-review-$LAST-$NEXT git diff -b -D
+
+ If any of that isn't boring, you can git add -p the relevant files
+ and git commit --amend to include the non-boring parts of the files.
+ In such a case, it is a good idea to work out why resetboring.py
+ thought it was boring and fix it, if possible, to avoid similar
+ errors in future.
+
+ When doing an amend, git fetch the currently live patch-set of the
+ review in each sub-module (sadly not something we can automate with
+ this script) and also git diff -b -D FETCH_HEAD HEAD - if others have
+ added files to the review (as can happen with private headers that
+ define QML API), they'll show up in this diff. You need to check such
+ files out on $NEXT and add them to the newly amended commit. You can
+ run resetboring.py (without --disclaim) to unstage any boring changes
+ to such files, before committing such additions.
+
+ Clear away residual diff (after verifying it's all boring):
+ $ $ME -r api-review-$LAST-$NEXT git reset --hard HEAD
+
+ Remove review branch where we committed nothing:
+ $ $ME -r api-review-$LAST-$NEXT \\
+        if git diff --quiet $LAST api-review-$LAST-$NEXT ';' \\
+        then git reset --hard HEAD '&&' \\
+             git checkout $NEXT '&&' \\
+             git branch -D api-review-$LAST-$NEXT ';' fi
+ Note the use of quoted shell metacharacters; $ME shall
+ eval the command, ensuring they do their proper job.
+
+ Now we must discard any modules that aren't part of the coming
+ release, for which we need the current .gitmodules rather than the
+ old one:
+ $ git checkout $NEXT -- .gitmodules
+
+ Clear review branches from any modules to be ignored:
+ $ $ME -i -r api-review-$LAST-$NEXT \\
+        git checkout $NEXT '&&' git branch -D api-review-$LAST-$NEXT
+
+ Examine changes (mostly interesting) to be reviewed:
+ $ $ME -r api-review-$LAST-$NEXT git log -p $LAST..
+
+ Push to gerrit:
+ $ $ME -r api-review-$LAST-$NEXT git push gerrit HEAD:refs/for/$NEXT
+
+ When $LAST has changed (only relevant when using a branch here),
+ rebase review branches onto it:
+ $ $ME -r api-review-$LAST-$NEXT git rebase $LAST api-review-$LAST-$NEXT
+
+Note that all of the above presumes you have an up-to-date module set
+checked out; if you have not run qt5/init-repository recently, it may
+be prudent to do so before you start. Some modules may have been added
+or changed status since you last ran it.
+EOF
+}
+warn () { echo "$@" >&2; }
+die () { warn "$@"; exit 1; }
+banner () { echo; echo "====== $@ ======"; echo; }
+
+# Convert each .gitmodules stanza into a single line:
+modules () {
+    sed -e 's/^\[submodule/\v[submodule/' <.gitmodules | tr '\n\v' '\f\n'
+    echo
+}
+
+# Parse a single linearised stanza; discard if boring (or, when INVERT
+# is set, if interesting), else extract its directory name:
+INVERT=
+vetcheck () {
+    # Can't return from within the while loop; piping input to it has
+    # made it a sub-shell. (That also precludes assigning any
+    # variables within the loop; values would be forgotten after.)
+    echo "$@" | tr '\f' '\n' | while read name op value
+    do
+        [ "$op" = '=' ] || continue
+        case "$name" in
+            status)
+                # No BC/SC promises in preview; and we
+                # don't care about obsolete or ignore:
+                case "$value" in
+                    essential|addon|deprecated) [ -z "$INVERT" ] || echo no ;;
+                    preview|obsolete|ignore) [ -n "$INVERT" ] || echo no ;;
+                    *) warn "Unrecognized module status: $value (treated as active)"
+                        [ -z "$INVERT" ] || echo no
+                        ;;
+                esac;;
+            # repotools has qt = false
+            qt) [ "$value" = false ] && echo no ;;
+            # non-versioned modules aren't relevant to us:
+            branch) [ "$value" = master ] && echo no ;;
+        esac
+    done
+}
+
+vet () {
+    # First pass: filter out modules we don't want:
+    if vetcheck "$@" | grep -q no
+    then return
+    fi
+    echo "$@" | grep -w 'status *= *' | \
+        tr '\f' '\n' | grep 'path *=' | cut -d = -f 2
+}
+
+# Re-echo a module if it has all required refs:
+checkrefs () {
+    for ref in $REFS
+    # Use rev-parse --verify to test whether $ref exists in this repo:
+    do (cd "$1" && git rev-parse -q --verify "$ref^{commit}" >/dev/null 2>&1) || return
+    done
+    echo "$1"
+}
+
+# List the API-relevant modules:
+relevant () {
+    # Select released Qt modules:
+    modules | while read stanza
+    do vet "$stanza"
+    done | while read path
+    # Only those with src/ and a sync.profile matter:
+    do if [ -d "$path/src" -a -f "$path/sync.profile" ]
+       # Filter on the desired refs (if any):
+       then checkrefs "$path"
+       fi
+    done
+}
+
+REFS=
+while [ $# -gt 0 ]
+do
+    case "$1" in
+        -u|--usage) usage; exit 0;;
+        -h|--help) help; exit 0;;
+        -i|--ignored) INVERT=yes; shift;;
+        -r|--require) REFS="$REFS $2"; shift 2;;
+        --) shift; break;;
+        -*) usage >&2; die "Unrecognised option: $1";;
+        *) break;;
+    esac
+done
+[ -e .gitmodules ] || die "I must be run in the top-level (qt5) directory"
+if [ $# -eq 0 ]
+then
+    usage >&2
+    die "You need to supply a command to run in each module !"
+fi
+
+relevant | while read dir
+do (cd "$dir" && banner "$dir" && eval "$@") || warn "Failed ($?) in $dir: $@"
+done
