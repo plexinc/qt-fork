@@ -56,59 +56,6 @@
 #pragma GCC diagnostic ignored "-Wunknown-pragmas"
 #pragma GCC diagnostic ignored "-Wunknown-warning-option"
 #endif
-#ifndef HB_NO_PRAGMA_GCC_DIAGNOSTIC_WARNING
-//#pragma GCC diagnostic warning "-Weverything"
-#endif
-
-/* Error.  Should never happen. */
-#ifndef HB_NO_PRAGMA_GCC_DIAGNOSTIC_ERROR
-#pragma GCC diagnostic error   "-Wc++11-narrowing"
-#pragma GCC diagnostic error   "-Wcast-align"
-#pragma GCC diagnostic error   "-Wcast-function-type"
-#pragma GCC diagnostic error   "-Wdelete-non-virtual-dtor"
-#pragma GCC diagnostic error   "-Wembedded-directive"
-#pragma GCC diagnostic error   "-Wextra-semi-stmt"
-#pragma GCC diagnostic error   "-Wformat-security"
-#pragma GCC diagnostic error   "-Wimplicit-function-declaration"
-#pragma GCC diagnostic error   "-Winit-self"
-#pragma GCC diagnostic error   "-Winjected-class-name"
-#pragma GCC diagnostic error   "-Wmissing-braces"
-#pragma GCC diagnostic error   "-Wmissing-declarations"
-#pragma GCC diagnostic error   "-Wmissing-prototypes"
-#pragma GCC diagnostic error   "-Wnested-externs"
-#pragma GCC diagnostic error   "-Wold-style-definition"
-#pragma GCC diagnostic error   "-Wpointer-arith"
-#pragma GCC diagnostic error   "-Wredundant-decls"
-#pragma GCC diagnostic error   "-Wreorder"
-#pragma GCC diagnostic error   "-Wsign-compare"
-#pragma GCC diagnostic error   "-Wstrict-prototypes"
-#pragma GCC diagnostic error   "-Wstring-conversion"
-#pragma GCC diagnostic error   "-Wswitch-enum"
-#pragma GCC diagnostic error   "-Wtautological-overlap-compare"
-#pragma GCC diagnostic error   "-Wunneeded-internal-declaration"
-#pragma GCC diagnostic error   "-Wunused"
-#pragma GCC diagnostic error   "-Wunused-local-typedefs"
-#pragma GCC diagnostic error   "-Wunused-value"
-#pragma GCC diagnostic error   "-Wunused-variable"
-#pragma GCC diagnostic error   "-Wvla"
-#pragma GCC diagnostic error   "-Wwrite-strings"
-#endif
-
-/* Warning.  To be investigated if happens. */
-#ifndef HB_NO_PRAGMA_GCC_DIAGNOSTIC_WARNING
-#pragma GCC diagnostic warning "-Wbuiltin-macro-redefined"
-#pragma GCC diagnostic warning "-Wdeprecated"
-#pragma GCC diagnostic warning "-Wdeprecated-declarations"
-#pragma GCC diagnostic warning "-Wdisabled-optimization"
-#pragma GCC diagnostic warning "-Wdouble-promotion"
-#pragma GCC diagnostic warning "-Wformat=2"
-#pragma GCC diagnostic warning "-Wignored-pragma-optimize"
-#pragma GCC diagnostic warning "-Wlogical-op"
-#pragma GCC diagnostic warning "-Wmaybe-uninitialized"
-#pragma GCC diagnostic warning "-Wmissing-format-attribute"
-#pragma GCC diagnostic warning "-Wundef"
-#pragma GCC diagnostic warning "-Wunused-but-set-variable"
-#endif
 
 /* Ignored currently, but should be fixed at some point. */
 #ifndef HB_NO_PRAGMA_GCC_DIAGNOSTIC_IGNORED
